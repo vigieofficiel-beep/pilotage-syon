@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import PagePersonnalisation from './pages/PagePersonnalisation'
+import PageVault from './pages/PageVault'
 
 const PROJECTS_DEFAULT = [
   { id:'vigie',        label:'Vigie',        color:'#5BA3C7', emoji:'🛡️' },
@@ -93,8 +94,7 @@ function TabContenu({ project }) {
 
   const copier    = (contenu) => navigator.clipboard.writeText(contenu)
   const supprimer = (id)      => setPosts(prev => prev.filter(p => p.id !== id))
-
-  const plt_icon = { linkedin:'💼', facebook:'👥', discord:'🎮', youtube:'🎬' }
+  const plt_icon  = { linkedin:'💼', facebook:'👥', discord:'🎮', youtube:'🎬' }
 
   return (
     <div style={{ display:'flex', gap:24, height:'100%' }}>
@@ -172,7 +172,6 @@ function TabContenu({ project }) {
 function TabPlaceholder({ tab, project }) {
   const m = {
     monitoring: { icon:'📊', titre:'Monitoring',  desc:'Coûts OpenAI · Alertes RGPD · Sécurité · Uptime' },
-    vault:      { icon:'🔐', titre:'Vault',        desc:'Tous tes comptes · Clés API · Outils · Abonnements' },
     finances:   { icon:'💰', titre:'Finances',     desc:'MRR · Dépenses · Marge nette · Projections' },
     sav:        { icon:'💬', titre:'SAV',           desc:'Messages entrants · Tickets · Historique client' },
     prospects:  { icon:'🎯', titre:'Prospects',    desc:'CRM · Pipeline · Séquences email · Scoring IA' },
@@ -232,7 +231,7 @@ export default function App() {
           <p style={{ fontSize:9, fontWeight:700, color:'rgba(237,232,219,0.25)', textTransform:'uppercase', letterSpacing:'0.1em', padding:'0 8px', marginBottom:8 }}>Modules</p>
           {TABS.map(t => (
             <button key={t.id} onClick={() => setActiveTab(t.id)}
-              style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:10, border:'none', background:activeTab===t.id?'rgba(255,255,255,0.07)':'transparent', cursor:'pointer', textAlign:'left', transition:'all 0.15s', borderLeft:activeTab===t.id&&t.id==='personnalisation'?`3px solid ${project.color}`:'3px solid transparent' }}>
+              style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:10, border:'none', background:activeTab===t.id?'rgba(255,255,255,0.07)':'transparent', cursor:'pointer', textAlign:'left', transition:'all 0.15s', borderLeft:activeTab===t.id&&['personnalisation','vault'].includes(t.id)?`3px solid ${project.color}`:'3px solid transparent' }}>
               <span style={{ fontSize:14 }}>{t.emoji}</span>
               <span style={{ fontSize:12, fontWeight:activeTab===t.id?700:400, color:activeTab===t.id?'#EDE8DB':'rgba(237,232,219,0.4)' }}>{t.label}</span>
             </button>
@@ -259,7 +258,8 @@ export default function App() {
           <div style={{ flex:1, padding:24, overflowY:'auto' }}>
             {activeTab === 'contenu'          && <TabContenu project={project}/>}
             {activeTab === 'personnalisation' && <PagePersonnalisation project={project}/>}
-            {!['contenu','personnalisation'].includes(activeTab) && <TabPlaceholder tab={activeTab} project={project}/>}
+            {activeTab === 'vault'            && <PageVault project={project} projects={projects}/>}
+            {!['contenu','personnalisation','vault'].includes(activeTab) && <TabPlaceholder tab={activeTab} project={project}/>}
           </div>
         </div>
       </div>
