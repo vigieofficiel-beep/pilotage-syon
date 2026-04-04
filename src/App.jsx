@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import PagePersonnalisation from './pages/PagePersonnalisation'
 import PageVault from './pages/PageVault'
+import PageMonitoring from './pages/PageMonitoring'
 
 const PROJECTS_DEFAULT = [
   { id:'vigie',        label:'Vigie',        color:'#5BA3C7', emoji:'🛡️' },
@@ -59,7 +60,6 @@ Génère un post ${platform} percutant et authentique.
 Réponds UNIQUEMENT avec le post final, sans explication.`
 }
 
-// ── TAB CONTENU ───────────────────────────────────────────────────
 function TabContenu({ project }) {
   const [prompt,   setPrompt]   = useState('')
   const [loading,  setLoading]  = useState(false)
@@ -171,10 +171,9 @@ function TabContenu({ project }) {
 
 function TabPlaceholder({ tab, project }) {
   const m = {
-    monitoring: { icon:'📊', titre:'Monitoring',  desc:'Coûts OpenAI · Alertes RGPD · Sécurité · Uptime' },
-    finances:   { icon:'💰', titre:'Finances',     desc:'MRR · Dépenses · Marge nette · Projections' },
-    sav:        { icon:'💬', titre:'SAV',           desc:'Messages entrants · Tickets · Historique client' },
-    prospects:  { icon:'🎯', titre:'Prospects',    desc:'CRM · Pipeline · Séquences email · Scoring IA' },
+    finances:  { icon:'💰', titre:'Finances',  desc:'MRR · Dépenses · Marge nette · Projections' },
+    sav:       { icon:'💬', titre:'SAV',        desc:'Messages entrants · Tickets · Historique client' },
+    prospects: { icon:'🎯', titre:'Prospects', desc:'CRM · Pipeline · Séquences email · Scoring IA' },
   }[tab] || { icon:'🔧', titre:tab, desc:'En construction' }
 
   return (
@@ -189,7 +188,6 @@ function TabPlaceholder({ tab, project }) {
   )
 }
 
-// ── APP ───────────────────────────────────────────────────────────
 export default function App() {
   const [projects,      setProjects]      = useState(PROJECTS_DEFAULT)
   const [activeProject, setActiveProject] = useState('vigie')
@@ -197,10 +195,11 @@ export default function App() {
 
   const project = projects.find(p => p.id === activeProject)
 
+  const ACTIVE_TABS = ['contenu','personnalisation','vault','monitoring']
+
   return (
     <div style={{ fontFamily:"'Nunito Sans',sans-serif", background:'#0D1B2A', color:'#EDE8DB', height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
 
-      {/* TOPBAR */}
       <div style={{ height:52, background:'rgba(0,0,0,0.3)', borderBottom:'1px solid rgba(255,255,255,0.06)', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', flexShrink:0 }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <div style={{ width:28, height:28, borderRadius:8, background:`linear-gradient(135deg,${project.color},#0D1B2A)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>{project.emoji}</div>
@@ -214,8 +213,6 @@ export default function App() {
       </div>
 
       <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
-
-        {/* SIDEBAR */}
         <div style={{ width:200, background:'rgba(0,0,0,0.2)', borderRight:'1px solid rgba(255,255,255,0.06)', display:'flex', flexDirection:'column', padding:'16px 10px', gap:4, flexShrink:0, overflowY:'auto' }}>
           <p style={{ fontSize:9, fontWeight:700, color:'rgba(237,232,219,0.25)', textTransform:'uppercase', letterSpacing:'0.1em', padding:'0 8px', marginBottom:8 }}>Projets</p>
           {projects.map(p => (
@@ -231,7 +228,7 @@ export default function App() {
           <p style={{ fontSize:9, fontWeight:700, color:'rgba(237,232,219,0.25)', textTransform:'uppercase', letterSpacing:'0.1em', padding:'0 8px', marginBottom:8 }}>Modules</p>
           {TABS.map(t => (
             <button key={t.id} onClick={() => setActiveTab(t.id)}
-              style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:10, border:'none', background:activeTab===t.id?'rgba(255,255,255,0.07)':'transparent', cursor:'pointer', textAlign:'left', transition:'all 0.15s', borderLeft:activeTab===t.id&&['personnalisation','vault'].includes(t.id)?`3px solid ${project.color}`:'3px solid transparent' }}>
+              style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:10, border:'none', background:activeTab===t.id?'rgba(255,255,255,0.07)':'transparent', cursor:'pointer', textAlign:'left', transition:'all 0.15s', borderLeft:activeTab===t.id&&ACTIVE_TABS.includes(t.id)?`3px solid ${project.color}`:'3px solid transparent' }}>
               <span style={{ fontSize:14 }}>{t.emoji}</span>
               <span style={{ fontSize:12, fontWeight:activeTab===t.id?700:400, color:activeTab===t.id?'#EDE8DB':'rgba(237,232,219,0.4)' }}>{t.label}</span>
             </button>
@@ -245,7 +242,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* CONTENU */}
         <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
           <div style={{ padding:'16px 24px 14px', borderBottom:'1px solid rgba(255,255,255,0.06)', flexShrink:0, display:'flex', alignItems:'center', gap:10 }}>
             <span style={{ fontSize:20 }}>{TABS.find(t => t.id===activeTab)?.emoji}</span>
@@ -259,7 +255,8 @@ export default function App() {
             {activeTab === 'contenu'          && <TabContenu project={project}/>}
             {activeTab === 'personnalisation' && <PagePersonnalisation project={project}/>}
             {activeTab === 'vault'            && <PageVault project={project} projects={projects}/>}
-            {!['contenu','personnalisation','vault'].includes(activeTab) && <TabPlaceholder tab={activeTab} project={project}/>}
+            {activeTab === 'monitoring'       && <PageMonitoring project={project}/>}
+            {!ACTIVE_TABS.includes(activeTab) && <TabPlaceholder tab={activeTab} project={project}/>}
           </div>
         </div>
       </div>
