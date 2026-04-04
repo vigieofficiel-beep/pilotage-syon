@@ -60,12 +60,170 @@ Génère un post ${platform} percutant et authentique.
 Réponds UNIQUEMENT avec le post final, sans explication.`
 }
 
-function TabContenu({ project }) {
-  const [prompt,   setPrompt]   = useState('')
+// ── SCORE QUALITÉ ─────────────────────────────────────────────────
+function ScorePanel({ post, project, onClose, onRewrite }) {
+  const [score,    setScore]    = useState(null)
   const [loading,  setLoading]  = useState(false)
-  const [genAll,   setGenAll]   = useState(false)
-  const [posts,    setPosts]    = useState([])
-  const [platform, setPlatform] = useState('linkedin')
+  const [rewrite,  setRewrite]  = useState(null)
+  const [rewLoading, setRewLoading] = useState(false)
+
+  const analyser = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${import.meta.env.VITE_OPENAI_API_KEY}` },
+        body: JSON.stringify({
+          model: 'gpt-4o', max_tokens: 400,
+          response_format: { type: 'json_object' },
+          messages: [{ role:'user', content:
+            `Tu es un expert en marketing de contenu pour réseaux sociaux.
+Analyse ce post ${post.platform} et donne un score détaillé.
+
+POST :
+${post.contenu}
+
+Réponds en JSON :
+{
+  "score_global": 8,
+  "accroche": { "note": 8, "ok": true, "commentaire": "..." },
+  "longueur": { "note": 9, "ok": true, "commentaire": "..." },
+  "cta": { "note": 7, "ok": true, "commentaire": "..." },
+  "ton": { "note": 8, "ok": true, "commentaire": "..." },
+  "originalite": { "note": 7, "ok": true, "commentaire": "..." },
+  "suggestion_globale": "Ce post est bon mais..."
+}`
+          }]
+        })
+      })
+      const data = await res.json()
+      setScore(JSON.parse(data.choices[0].message.content))
+    } catch(e) { console.error(e) }
+    setLoading(false)
+  }
+
+  const ameliorer = async () => {
+    setRewLoading(true)
+    try {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${import.meta.env.VITE_OPENAI_API_KEY}` },
+        body: JSON.stringify({
+          model: 'gpt-4o', max_tokens: 600,
+          messages: [{ role:'user', content:
+            `Tu es un expert en copywriting pour ${post.platform}.
+Réécris ce post en améliorant : accroche, call-to-action, et impact émotionnel.
+Garde le même sens et le même message.
+
+POST ORIGINAL :
+${post.contenu}
+
+${score?.suggestion_globale ? `Points à améliorer : ${score.suggestion_globale}` : ''}
+
+Réponds UNIQUEMENT avec le post réécrit, sans explication.`
+          }]
+        })
+      })
+      const data = await res.json()
+      setRewrite(data.choices[0].message.content.trim())
+    } catch(e) { console.error(e) }
+    setRewLoading(false)
+  }
+
+  const scoreColor = (n) => n >= 8 ? '#5BC78A' : n >= 6 ? '#D4A853' : '#C75B4E'
+  const criterias = score ? [
+    { label:'Accroche',    data: score.accroche    },
+    { label:'Longueur',    data: score.longueur    },
+    { label:'CTA',         data: score.cta         },
+    { label:'Ton',         data: score.ton         },
+    { label:'Originalité', data: score.originalite },
+  ] : []
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => { if(e.target===e.currentTarget) onClose() }}>
+      <div style={{ background:'#1a1d24', border:'1px solid rgba(255,255,255,0.1)', borderRadius:16, width:'100%', maxWidth:560, padding:28, maxHeight:'90vh', overflowY:'auto' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+          <h3 style={{ fontSize:16, fontWeight:700, color:'#EDE8DB', margin:0 }}>🎯 Score qualité — {post.platform}</h3>
+          <button onClick={onClose} style={{ background:'rgba(255,255,255,0.06)', border:'none', borderRadius:8, padding:'5px 10px', cursor:'pointer', color:'rgba(237,232,219,0.6)', fontSize:12 }}>✕</button>
+        </div>
+
+        {/* Post original */}
+        <div style={{ background:'rgba(255,255,255,0.03)', borderRadius:10, padding:14, marginBottom:16, fontSize:12, color:'rgba(237,232,219,0.6)', lineHeight:1.6, whiteSpace:'pre-wrap', maxHeight:120, overflow:'hidden' }}>
+          {post.contenu}
+        </div>
+
+        {!score && (
+          <button onClick={analyser} disabled={loading}
+            style={{ width:'100%', padding:'11px', borderRadius:10, border:'none', background:loading?`${project.color}40`:project.color, color:'#0D1B2A', fontSize:13, fontWeight:800, cursor:loading?'not-allowed':'pointer', marginBottom:16 }}>
+            {loading ? '⏳ Analyse en cours...' : '🔍 Analyser ce post'}
+          </button>
+        )}
+
+        {score && (
+          <>
+            {/* Score global */}
+            <div style={{ textAlign:'center', marginBottom:20, padding:'16px', background:`${scoreColor(score.score_global)}15`, border:`1px solid ${scoreColor(score.score_global)}30`, borderRadius:12 }}>
+              <div style={{ fontSize:48, fontWeight:900, color:scoreColor(score.score_global), lineHeight:1 }}>{score.score_global}</div>
+              <div style={{ fontSize:12, color:'rgba(237,232,219,0.5)', marginTop:4 }}>Score global / 10</div>
+            </div>
+
+            {/* Critères */}
+            <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:16 }}>
+              {criterias.map(({ label, data }) => data && (
+                <div key={label} style={{ background:'rgba(255,255,255,0.02)', borderRadius:10, padding:'10px 14px' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                    <span style={{ fontSize:12, fontWeight:700, color:'#EDE8DB' }}>{data.ok ? '✅' : '⚠️'} {label}</span>
+                    <span style={{ fontSize:13, fontWeight:800, color:scoreColor(data.note) }}>{data.note}/10</span>
+                  </div>
+                  <div style={{ height:3, background:'rgba(255,255,255,0.06)', borderRadius:2, marginBottom:6 }}>
+                    <div style={{ width:`${data.note*10}%`, height:'100%', background:scoreColor(data.note), borderRadius:2 }}/>
+                  </div>
+                  <p style={{ fontSize:11, color:'rgba(237,232,219,0.4)', margin:0 }}>{data.commentaire}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Suggestion globale */}
+            {score.suggestion_globale && (
+              <div style={{ background:'rgba(212,168,83,0.08)', border:'1px solid rgba(212,168,83,0.2)', borderRadius:10, padding:'10px 14px', marginBottom:16, fontSize:12, color:'#D4A853' }}>
+                💡 {score.suggestion_globale}
+              </div>
+            )}
+
+            {/* Réécriture */}
+            {!rewrite && (
+              <button onClick={ameliorer} disabled={rewLoading}
+                style={{ width:'100%', padding:'10px', borderRadius:10, border:`1px solid ${project.color}`, background:'transparent', color:project.color, fontSize:12, fontWeight:700, cursor:rewLoading?'not-allowed':'pointer', marginBottom:8 }}>
+                {rewLoading ? '⏳ Réécriture...' : '✨ Améliorer automatiquement'}
+              </button>
+            )}
+
+            {rewrite && (
+              <div style={{ background:'rgba(91,199,138,0.05)', border:'1px solid rgba(91,199,138,0.2)', borderRadius:10, padding:14, marginBottom:12 }}>
+                <p style={{ fontSize:11, fontWeight:700, color:'#5BC78A', marginBottom:8 }}>✨ Version améliorée :</p>
+                <p style={{ fontSize:12, color:'rgba(237,232,219,0.8)', lineHeight:1.6, margin:'0 0 10px', whiteSpace:'pre-wrap' }}>{rewrite}</p>
+                <button onClick={() => { onRewrite(rewrite); onClose() }}
+                  style={{ width:'100%', padding:'8px', borderRadius:8, border:'none', background:'#5BC78A', color:'#0D1B2A', fontSize:12, fontWeight:800, cursor:'pointer' }}>
+                  ✅ Utiliser cette version
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── TAB CONTENU ───────────────────────────────────────────────────
+function TabContenu({ project }) {
+  const [prompt,    setPrompt]    = useState('')
+  const [loading,   setLoading]   = useState(false)
+  const [genAll,    setGenAll]    = useState(false)
+  const [posts,     setPosts]     = useState([])
+  const [platform,  setPlatform]  = useState('linkedin')
+  const [analysing, setAnalysing] = useState(null) // post analysé
 
   const generer = async (plt = platform, clearPrompt = true) => {
     if (!prompt.trim()) return
@@ -94,10 +252,22 @@ function TabContenu({ project }) {
 
   const copier    = (contenu) => navigator.clipboard.writeText(contenu)
   const supprimer = (id)      => setPosts(prev => prev.filter(p => p.id !== id))
+  const rewrite   = (id, newContenu) => setPosts(prev => prev.map(p => p.id === id ? { ...p, contenu: newContenu } : p))
   const plt_icon  = { linkedin:'💼', facebook:'👥', discord:'🎮', youtube:'🎬' }
 
   return (
     <div style={{ display:'flex', gap:24, height:'100%' }}>
+
+      {/* Panel score */}
+      {analysing && (
+        <ScorePanel
+          post={analysing}
+          project={project}
+          onClose={() => setAnalysing(null)}
+          onRewrite={(newContenu) => rewrite(analysing.id, newContenu)}
+        />
+      )}
+
       <div style={{ flex:1, display:'flex', flexDirection:'column', gap:14 }}>
         <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:14, padding:20 }}>
           <h3 style={{ fontSize:14, fontWeight:700, color:'#EDE8DB', marginBottom:14 }}>🤖 Génération IA</h3>
@@ -153,6 +323,11 @@ function TabContenu({ project }) {
                   style={{ flex:1, padding:'6px', borderRadius:7, border:'none', background:project.color, color:'#0D1B2A', fontSize:11, fontWeight:700, cursor:'pointer' }}>
                   📋 Copier
                 </button>
+                <button onClick={() => setAnalysing(p)}
+                  style={{ padding:'6px 8px', borderRadius:7, border:`1px solid ${project.color}40`, background:`${project.color}10`, color:project.color, fontSize:11, cursor:'pointer' }}
+                  title="Analyser la qualité">
+                  🎯
+                </button>
                 <button style={{ padding:'6px 10px', borderRadius:7, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'rgba(237,232,219,0.5)', fontSize:11, cursor:'pointer' }}>
                   Publier
                 </button>
@@ -194,7 +369,6 @@ export default function App() {
   const [activeTab,     setActiveTab]     = useState('contenu')
 
   const project = projects.find(p => p.id === activeProject)
-
   const ACTIVE_TABS = ['contenu','personnalisation','vault','monitoring']
 
   return (
@@ -208,7 +382,7 @@ export default function App() {
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <div style={{ width:8, height:8, borderRadius:'50%', background:'#5BC78A' }}/>
-          <span style={{ fontSize:11, color:'rgba(237,232,219,0.3)' }}>v0.1.0</span>
+          <span style={{ fontSize:11, color:'rgba(237,232,219,0.3)' }}>v0.2.0</span>
         </div>
       </div>
 
