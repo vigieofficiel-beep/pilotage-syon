@@ -6,6 +6,7 @@ import PageFinances from './pages/PageFinances'
 import PageSAV from './pages/PageSAV'
 import PageProspects from './pages/PageProspects'
 import PageCalendrier from './pages/PageCalendrier'
+import LicenceModal from './pages/LicenceModal'
 
 const PROJECTS_DEFAULT = [
   { id:'vigie',        label:'Vigie',        color:'#5BA3C7', emoji:'🛡️', reseaux:['linkedin','facebook','discord','youtube'] },
@@ -270,7 +271,9 @@ function TabContenu({ project }) {
   )
 }
 
+// ── APP ───────────────────────────────────────────────────────────
 export default function App() {
+  const [licenceOk,     setLicenceOk]     = useState(null) // null = en cours de vérif
   const [projects,      setProjects]      = useState(loadProjects)
   const [activeProject, setActiveProject] = useState(loadProjects()[0]?.id||'vigie')
   const [activeTab,     setActiveTab]     = useState('contenu')
@@ -280,6 +283,20 @@ export default function App() {
     try { const s = localStorage.getItem(STORAGE_KEY_THEME); return s ? JSON.parse(s) : BG_THEMES[0] }
     catch { return BG_THEMES[0] }
   })
+
+  // Vérification licence au démarrage
+  useEffect(() => {
+    const check = async () => {
+      if (window.electronAPI?.checkLicence) {
+        const ok = await window.electronAPI.checkLicence()
+        setLicenceOk(ok)
+      } else {
+        // Mode dev web — pas de vérif
+        setLicenceOk(true)
+      }
+    }
+    check()
+  }, [])
 
   const project = projects.find(p=>p.id===activeProject)||projects[0]
   const selectTheme = (t) => { setTheme(t); localStorage.setItem(STORAGE_KEY_THEME, JSON.stringify(t)) }
@@ -292,6 +309,19 @@ export default function App() {
     saveProjects(updated); setProjetModal(null)
   }
   const supprimerProjet=(id)=>{if(projects.length<=1)return;if(!confirm('Supprimer ?'))return;const updated=projects.filter(p=>p.id!==id);saveProjects(updated);if(activeProject===id)setActiveProject(updated[0].id)}
+
+  // Écran de chargement pendant vérif licence
+  if (licenceOk === null) return (
+    <div style={{background:'#0D1B2A',height:'100vh',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Nunito Sans',sans-serif"}}>
+      <div style={{textAlign:'center'}}>
+        <div style={{fontSize:40,marginBottom:16}}>🧭</div>
+        <p style={{color:'rgba(237,232,219,0.3)',fontSize:13}}>Chargement...</p>
+      </div>
+    </div>
+  )
+
+  // Écran d'activation si pas de licence
+  if (!licenceOk) return <LicenceModal onActivated={() => setLicenceOk(true)} />
 
   return (
     <div style={{fontFamily:"'Nunito Sans',sans-serif",background:theme.bg,color:'#EDE8DB',height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden',position:'relative'}}>
@@ -312,7 +342,7 @@ export default function App() {
           </button>
           <div style={{display:'flex',alignItems:'center',gap:6}}>
             <div style={{width:8,height:8,borderRadius:'50%',background:'#5BC78A'}}/>
-            <span style={{fontSize:11,color:'rgba(237,232,219,0.3)'}}>v0.8.0</span>
+            <span style={{fontSize:11,color:'rgba(237,232,219,0.3)'}}>v0.9.0</span>
           </div>
         </div>
       </div>
