@@ -18,7 +18,12 @@ const TON_OPTIONS = [
   { val: 'pedagogique',   label: '📚 Pédagogique'    },
 ]
 
-const iS = { width:'100%', padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'#EDE8DB', fontSize:13, outline:'none', fontFamily:"'Nunito Sans',sans-serif", boxSizing:'border-box', lineHeight:1.6 }
+const iS = {
+  width:'100%', padding:'10px 14px', borderRadius:8,
+  background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)',
+  color:'#EDE8DB', fontSize:13, outline:'none',
+  fontFamily:"'Nunito Sans',sans-serif", boxSizing:'border-box', lineHeight:1.6
+}
 
 export default function PagePersonnalisation({ project }) {
   const storageKey = `pilotage_config_${project.id}`
@@ -26,8 +31,8 @@ export default function PagePersonnalisation({ project }) {
     try { const s = localStorage.getItem(storageKey); return s ? { ...DEFAULT_CONFIG, ...JSON.parse(s) } : DEFAULT_CONFIG }
     catch { return DEFAULT_CONFIG }
   })
-  const [saved,          setSaved]          = useState(false)
-  const [activeSection,  setActiveSection]  = useState('fiche')
+  const [saved, setSaved]               = useState(false)
+  const [activeSection, setActiveSection] = useState('fiche')
 
   useEffect(() => {
     try { const s = localStorage.getItem(`pilotage_config_${project.id}`); setConfig(s ? { ...DEFAULT_CONFIG, ...JSON.parse(s) } : DEFAULT_CONFIG) }
@@ -49,6 +54,7 @@ export default function PagePersonnalisation({ project }) {
 
   return (
     <div style={{ display:'flex', gap:24, height:'100%' }}>
+      {/* Sous-nav */}
       <div style={{ width:180, flexShrink:0 }}>
         <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
           {SECTIONS.map(s => (
@@ -70,27 +76,33 @@ export default function PagePersonnalisation({ project }) {
         </div>
       </div>
 
+      {/* Contenu */}
       <div style={{ flex:1, overflowY:'auto' }}>
+
+        {/* ── FICHE PROJET ── */}
         {activeSection === 'fiche' && (
           <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+
             <div style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:14, padding:20 }}>
-              <h3 style={{ fontSize:13, fontWeight:700, color:'#EDE8DB', marginBottom:16 }}>👤 Qui es-tu ?</h3>
+              <h3 style={{ fontSize:13, fontWeight:700, color:'#EDE8DB', marginBottom:16 }}>👤 Mon identité</h3>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
                 <div>
-                  <label style={{ fontSize:11, color:'rgba(237,232,219,0.4)', display:'block', marginBottom:6 }}>Ton nom / marque</label>
-                  <input value={config.nom} onChange={e => update('nom', e.target.value)} placeholder="Ex: Lucien Doppler" style={iS}/>
+                  <label style={{ fontSize:11, color:'rgba(237,232,219,0.4)', display:'block', marginBottom:6 }}>Nom / Pseudo / Marque</label>
+                  <input value={config.nom} onChange={e => update('nom', e.target.value)}
+                    placeholder="Ex: Clara Martin, Studio Nexum..." style={iS}/>
                 </div>
                 <div>
-                  <label style={{ fontSize:11, color:'rgba(237,232,219,0.4)', display:'block', marginBottom:6 }}>Ton activité</label>
-                  <input value={config.activite} onChange={e => update('activite', e.target.value)} placeholder="Ex: SaaS pré-comptabilité" style={iS}/>
+                  <label style={{ fontSize:11, color:'rgba(237,232,219,0.4)', display:'block', marginBottom:6 }}>Mon entreprise ou ma chaîne</label>
+                  <input value={config.activite} onChange={e => update('activite', e.target.value)}
+                    placeholder="Ex: Agence Lumio, Chaîne TechVision..." style={iS}/>
                 </div>
               </div>
             </div>
 
             <div style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:14, padding:20 }}>
-              <h3 style={{ fontSize:13, fontWeight:700, color:'#EDE8DB', marginBottom:12 }}>🎯 Ton audience</h3>
+              <h3 style={{ fontSize:13, fontWeight:700, color:'#EDE8DB', marginBottom:12 }}>🎯 Mon audience</h3>
               <textarea value={config.audience} onChange={e => update('audience', e.target.value)}
-                placeholder="Ex: Auto-entrepreneurs français qui cherchent à simplifier leur gestion"
+                placeholder="Ex: Entrepreneurs et freelances qui veulent développer leur visibilité en ligne"
                 rows={3} style={{ ...iS, resize:'vertical' }}/>
             </div>
 
@@ -106,12 +118,14 @@ export default function PagePersonnalisation({ project }) {
               </div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
                 <div>
-                  <label style={{ fontSize:11, color:'rgba(237,232,219,0.4)', display:'block', marginBottom:6 }}>✅ Mots à toujours utiliser</label>
-                  <input value={config.mots_inclure} onChange={e => update('mots_inclure', e.target.value)} placeholder="Ex: indépendants, gestion, auto-entrepreneur" style={iS}/>
+                  <label style={{ fontSize:11, color:'rgba(237,232,219,0.4)', display:'block', marginBottom:6 }}>✅ Mots clés à utiliser</label>
+                  <input value={config.mots_inclure} onChange={e => update('mots_inclure', e.target.value)}
+                    placeholder="Ex: croissance, impact, communauté..." style={iS}/>
                 </div>
                 <div>
                   <label style={{ fontSize:11, color:'rgba(237,232,219,0.4)', display:'block', marginBottom:6 }}>❌ Mots à éviter</label>
-                  <input value={config.mots_exclure} onChange={e => update('mots_exclure', e.target.value)} placeholder="Ex: révolutionnaire, disruptif" style={iS}/>
+                  <input value={config.mots_exclure} onChange={e => update('mots_exclure', e.target.value)}
+                    placeholder="Ex: révolutionnaire, incroyable, game-changer..." style={iS}/>
                 </div>
               </div>
             </div>
@@ -124,7 +138,8 @@ export default function PagePersonnalisation({ project }) {
                   <span style={{ fontSize:10, background:'rgba(91,199,138,0.1)', color:'#5BC78A', padding:'1px 8px', borderRadius:10 }}>Visible dans les posts</span>
                 </div>
                 <textarea value={config.bio_publique} onChange={e => update('bio_publique', e.target.value)}
-                  placeholder="Ce que l'IA peut mentionner publiquement..." rows={3} style={{ ...iS, resize:'vertical' }}/>
+                  placeholder="Ex: J'accompagne les créateurs à développer leur présence en ligne avec des outils IA..."
+                  rows={3} style={{ ...iS, resize:'vertical' }}/>
               </div>
               <div>
                 <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
@@ -132,19 +147,21 @@ export default function PagePersonnalisation({ project }) {
                   <span style={{ fontSize:10, background:'rgba(212,168,83,0.1)', color:'#D4A853', padding:'1px 8px', borderRadius:10 }}>Contexte IA uniquement</span>
                 </div>
                 <textarea value={config.bio_privee} onChange={e => update('bio_privee', e.target.value)}
-                  placeholder="Infos confidentielles pour l'IA (objectifs, chiffres, stratégie)..." rows={3} style={{ ...iS, resize:'vertical' }}/>
+                  placeholder="Ex: Objectif 5000€ MRR d'ici septembre, focus sur les créateurs solo et TPE..."
+                  rows={3} style={{ ...iS, resize:'vertical' }}/>
               </div>
             </div>
           </div>
         )}
 
+        {/* ── PROMPTS IA ── */}
         {activeSection === 'prompts' && (
           <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
             <div style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:14, padding:20 }}>
               <h3 style={{ fontSize:13, fontWeight:700, color:'#EDE8DB', marginBottom:8 }}>🌐 Contexte global</h3>
               <p style={{ fontSize:12, color:'rgba(237,232,219,0.4)', marginBottom:12 }}>Injecté dans TOUS tes posts, toutes plateformes.</p>
               <textarea value={config.contexte_global} onChange={e => update('contexte_global', e.target.value)}
-                placeholder={`Ex: Je suis Lucien Doppler, développeur solo à Laon. Je construis ${project.label}. Mon style est direct, sans jargon inutile.`}
+                placeholder={`Ex: Je dirige ${project.label}, une activité dédiée à [décrire]. Mon approche est [ton style]. Je m'adresse à [audience] qui cherche à [objectif].`}
                 rows={5} style={{ ...iS, resize:'vertical' }}/>
             </div>
             {PLATFORMS.map(p => (
@@ -154,10 +171,10 @@ export default function PagePersonnalisation({ project }) {
                 </h3>
                 <textarea value={config[`prompt_${p}`]} onChange={e => update(`prompt_${p}`, e.target.value)}
                   placeholder={
-                    p==='linkedin'?'Ex: Ton professionnel, flèches →, paragraphes courts, termine par une question...'
-                    :p==='facebook'?'Ex: Ton accessible, emojis, storytelling, partage personnel...'
-                    :p==='discord'?'Ex: Ton communauté, **gras**, technique si pertinent...'
-                    :'Ex: Script YouTube, accroche forte 5 sec, structure AIDA...'
+                    p==='linkedin' ? 'Ex: Paragraphes courts, 1 idée par ligne, termine par une question ouverte à la communauté...'
+                    : p==='facebook' ? 'Ex: Storytelling humain, ton chaleureux, 2-3 emojis max, invite au partage...'
+                    : p==='discord' ? 'Ex: Direct et technique, **points clés en gras**, invite à la discussion dans le fil...'
+                    : 'Ex: Accroche forte en 5 secondes, structure problème → solution → résultat, CTA abonnement...'
                   }
                   rows={3} style={{ ...iS, resize:'vertical' }}/>
               </div>
@@ -165,18 +182,19 @@ export default function PagePersonnalisation({ project }) {
           </div>
         )}
 
+        {/* ── AVANCÉ ── */}
         {activeSection === 'avance' && (
           <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
             <div style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:14, padding:20 }}>
-              <h3 style={{ fontSize:13, fontWeight:700, color:'#EDE8DB', marginBottom:8 }}>📊 Aperçu prompt LinkedIn</h3>
+              <h3 style={{ fontSize:13, fontWeight:700, color:'#EDE8DB', marginBottom:8 }}>📊 Aperçu du prompt LinkedIn</h3>
               <div style={{ background:'rgba(0,0,0,0.3)', borderRadius:10, padding:14, fontSize:11, color:'rgba(237,232,219,0.6)', lineHeight:1.7, fontFamily:'monospace', whiteSpace:'pre-wrap' }}>
 {`Projet : ${project.label}
-Nom : ${config.nom||'(non défini)'}
-Activité : ${config.activite||'(non défini)'}
-Audience : ${config.audience||'(non défini)'}
+Identité : ${config.nom||'(non renseigné)'}
+Entreprise / Chaîne : ${config.activite||'(non renseigné)'}
+Audience : ${config.audience||'(non renseigné)'}
 Ton : ${config.ton}
-Mots à inclure : ${config.mots_inclure||'aucun'}
-Mots à éviter : ${config.mots_exclure||'aucun'}
+Mots clés : ${config.mots_inclure||'aucun'}
+Mots exclus : ${config.mots_exclure||'aucun'}
 
 Contexte global :
 ${config.contexte_global||'(non défini)'}
@@ -187,7 +205,7 @@ ${config.prompt_linkedin||'(règles par défaut)'}`}
             </div>
             <div style={{ background:'rgba(199,91,78,0.05)', border:'1px solid rgba(199,91,78,0.15)', borderRadius:14, padding:20 }}>
               <h3 style={{ fontSize:13, fontWeight:700, color:'#C75B4E', marginBottom:8 }}>🔄 Réinitialiser</h3>
-              <button onClick={() => { if(confirm('Réinitialiser '+project.label+' ?')) { setConfig(DEFAULT_CONFIG); localStorage.removeItem(storageKey) }}}
+              <button onClick={() => { if(confirm('Réinitialiser la configuration de '+project.label+' ?')) { setConfig(DEFAULT_CONFIG); localStorage.removeItem(storageKey) }}}
                 style={{ padding:'8px 20px', borderRadius:8, border:'1px solid rgba(199,91,78,0.3)', background:'rgba(199,91,78,0.1)', color:'#C75B4E', fontSize:12, fontWeight:700, cursor:'pointer' }}>
                 Réinitialiser {project.label}
               </button>

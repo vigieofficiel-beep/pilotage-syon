@@ -30,6 +30,18 @@ const PALETTE = [
   '#FF8C42','#FFE66D','#4ECDC4','#45B7D1','#96CEB4',
 ]
 
+// Palettes de fond disponibles
+const BG_THEMES = [
+  { id:'midnight',  label:'Midnight',   bg:'#0D1B2A', grain:true  },
+  { id:'obsidian',  label:'Obsidian',   bg:'#0f0f13', grain:true  },
+  { id:'slate',     label:'Slate',      bg:'#141a24', grain:true  },
+  { id:'forest',    label:'Forest',     bg:'#0d1f1a', grain:true  },
+  { id:'charcoal',  label:'Charcoal',   bg:'#1a1a1a', grain:true  },
+  { id:'navy',      label:'Navy',       bg:'#0a1628', grain:true  },
+  { id:'plum',      label:'Plum',       bg:'#1a0d24', grain:true  },
+  { id:'carbon',    label:'Carbon',     bg:'#111318', grain:true  },
+]
+
 const TABS = [
   { id:'contenu',          label:'Contenu',          emoji:'✍️' },
   { id:'monitoring',       label:'Monitoring',        emoji:'📊' },
@@ -42,6 +54,7 @@ const TABS = [
 
 const ACTIVE_TABS = ['contenu','personnalisation','vault','monitoring','finances','sav','prospects']
 const STORAGE_KEY_PROJECTS = 'pilotage_projects'
+const STORAGE_KEY_THEME    = 'pilotage_theme'
 
 function loadProjects() {
   try { const s = localStorage.getItem(STORAGE_KEY_PROJECTS); return s ? JSON.parse(s) : PROJECTS_DEFAULT }
@@ -57,8 +70,8 @@ function buildPrompt(project, platform, idea) {
   const cfg = getConfig(project.id)
   const parts = [
     cfg.contexte_global && `Contexte : ${cfg.contexte_global}`,
-    cfg.nom             && `Nom/marque : ${cfg.nom}`,
-    cfg.activite        && `Activité : ${cfg.activite}`,
+    cfg.nom             && `Identité : ${cfg.nom}`,
+    cfg.activite        && `Entreprise / Chaîne : ${cfg.activite}`,
     cfg.audience        && `Audience : ${cfg.audience}`,
     cfg.ton             && `Ton : ${cfg.ton}`,
     cfg.mots_inclure    && `Mots à utiliser : ${cfg.mots_inclure}`,
@@ -66,7 +79,7 @@ function buildPrompt(project, platform, idea) {
     cfg.bio_publique    && `Bio publique : ${cfg.bio_publique}`,
   ].filter(Boolean).join('\n')
   const defaultRules = {
-    linkedin:`Ton professionnel, flèches →, paragraphes courts, termine par "— ${cfg.nom||'Lucien Doppler'}"`,
+    linkedin:`Ton professionnel, flèches →, paragraphes courts, termine par "— ${cfg.nom||'[Votre nom]'}"`,
     facebook:'Ton accessible, quelques emojis, storytelling humain',
     discord:'Ton communauté, **gras** pour les points clés, technique si pertinent',
     youtube:'Script court, accroche forte en 5 secondes, structure AIDA',
@@ -85,28 +98,44 @@ Génère un post ${platform} percutant et authentique.
 Réponds UNIQUEMENT avec le post final, sans explication.`
 }
 
-// ── PUBLICATION ───────────────────────────────────────────────────
 async function publierPost(platform, contenu) {
-  // Mode Electron — injection navigateur
   if (window.electronAPI?.publishPost) {
     await window.electronAPI.publishPost(platform, contenu)
     return
   }
-  // Mode web — ouvre simplement la plateforme + copie dans le presse-papier
   navigator.clipboard.writeText(contenu)
   const urls = {
-    linkedin: 'https://www.linkedin.com/feed/',
-    facebook: 'https://www.facebook.com/',
-    discord:  'https://discord.com/channels/@me',
-    youtube:  'https://studio.youtube.com/',
-    twitter:  'https://twitter.com/compose/tweet',
-    instagram:'https://www.instagram.com/',
-    tiktok:   'https://www.tiktok.com/upload',
-    threads:  'https://www.threads.net/',
+    linkedin:'https://www.linkedin.com/feed/', facebook:'https://www.facebook.com/',
+    discord:'https://discord.com/channels/@me', youtube:'https://studio.youtube.com/',
+    twitter:'https://twitter.com/compose/tweet', instagram:'https://www.instagram.com/',
+    tiktok:'https://www.tiktok.com/upload', threads:'https://www.threads.net/',
   }
   window.open(urls[platform] || urls.linkedin, '_blank')
 }
 
+// ── MODAL THEME ───────────────────────────────────────────────────
+function ThemeModal({ currentTheme, onSelect, onClose }) {
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:3000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget)onClose()}}>
+      <div style={{background:'#1a1d24',border:'1px solid rgba(255,255,255,0.1)',borderRadius:16,width:'100%',maxWidth:420,padding:28}}>
+        <h3 style={{fontSize:15,fontWeight:700,color:'#EDE8DB',marginBottom:20}}>🎨 Couleur de fond</h3>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:20}}>
+          {BG_THEMES.map(t => (
+            <button key={t.id} onClick={() => { onSelect(t); onClose() }}
+              style={{padding:'14px 16px',borderRadius:12,border:`2px solid ${currentTheme.id===t.id?'#EDE8DB':'rgba(255,255,255,0.1)'}`,background:t.bg,cursor:'pointer',display:'flex',alignItems:'center',gap:10,transition:'all 0.15s'}}>
+              <div style={{width:20,height:20,borderRadius:'50%',background:t.bg,border:'2px solid rgba(255,255,255,0.2)',boxShadow:'inset 0 0 0 1px rgba(255,255,255,0.05)'}}/>
+              <span style={{fontSize:12,fontWeight:currentTheme.id===t.id?700:400,color:'#EDE8DB'}}>{t.label}</span>
+              {currentTheme.id===t.id && <span style={{marginLeft:'auto',fontSize:12}}>✓</span>}
+            </button>
+          ))}
+        </div>
+        <button onClick={onClose} style={{width:'100%',padding:'10px',borderRadius:10,border:'1px solid rgba(255,255,255,0.1)',background:'transparent',color:'rgba(237,232,219,0.5)',fontSize:13,cursor:'pointer'}}>Fermer</button>
+      </div>
+    </div>
+  )
+}
+
+// ── MODAL PROJET ──────────────────────────────────────────────────
 function ProjetModal({ projet, onSave, onClose }) {
   const isNew = !projet.id
   const [form, setForm] = useState(projet.id ? {...projet} : {id:Date.now().toString(),label:'',emoji:'🚀',color:'#5BA3C7',reseaux:['linkedin']})
@@ -118,7 +147,10 @@ function ProjetModal({ projet, onSave, onClose }) {
         <h3 style={{fontSize:16,fontWeight:700,color:'#EDE8DB',marginBottom:20}}>{isNew?'➕ Nouveau projet':`✏️ Modifier ${projet.label}`}</h3>
         <div style={{display:'grid',gridTemplateColumns:'60px 1fr',gap:10,marginBottom:14}}>
           <div><label style={{fontSize:11,color:'rgba(237,232,219,0.4)',display:'block',marginBottom:4}}>Emoji</label><input value={form.emoji} onChange={e=>setForm(p=>({...p,emoji:e.target.value}))} style={{...iS,textAlign:'center',fontSize:22,padding:'6px'}}/></div>
-          <div><label style={{fontSize:11,color:'rgba(237,232,219,0.4)',display:'block',marginBottom:4}}>Nom *</label><input value={form.label} onChange={e=>setForm(p=>({...p,label:e.target.value}))} placeholder="Ex: MonProjet" style={iS}/></div>
+          <div>
+            <label style={{fontSize:11,color:'rgba(237,232,219,0.4)',display:'block',marginBottom:4}}>Nom du projet *</label>
+            <input value={form.label} onChange={e=>setForm(p=>({...p,label:e.target.value}))} placeholder="Ex: Mon entreprise ou ma chaîne" style={iS}/>
+          </div>
         </div>
         <div style={{marginBottom:14}}>
           <label style={{fontSize:11,color:'rgba(237,232,219,0.4)',display:'block',marginBottom:8}}>Couleur</label>
@@ -170,7 +202,7 @@ function RepurposePanel({ project, onClose, onAddPosts }) {
   const [source,setSource]=useState(''),[loading,setLoading]=useState(false),[results,setResults]=useState([])
   const platforms=project.reseaux||['linkedin','facebook','discord','youtube']
   const plt_icon=ALL_PLATFORMS.reduce((acc,p)=>({...acc,[p.id]:p.icon}),{})
-  const repurposer=async()=>{if(!source.trim())return;setLoading(true);setResults([]);try{const cfg=getConfig(project.id);for(const plt of platforms){const res=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`},body:JSON.stringify({model:'gpt-4o',max_tokens:600,messages:[{role:'user',content:`Expert repurposing pour ${plt}.\nProjet: ${project.label}\n${cfg.nom?`Auteur: ${cfg.nom}`:''}\nSOURCE: ${source}\nUNIQUEMENT le post.`}]})});const d=await res.json();setResults(prev=>[...prev,{id:Date.now()+Math.random(),platform:plt,contenu:d.choices[0].message.content.trim(),date:new Date().toLocaleDateString('fr-FR'),statut:'brouillon'}])}}catch(e){console.error(e)}setLoading(false)}
+  const repurposer=async()=>{if(!source.trim())return;setLoading(true);setResults([]);try{const cfg=getConfig(project.id);for(const plt of platforms){const res=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`},body:JSON.stringify({model:'gpt-4o',max_tokens:600,messages:[{role:'user',content:`Expert repurposing pour ${plt}.\nProjet: ${project.label}\n${cfg.nom?`Identité: ${cfg.nom}`:''}\nSOURCE: ${source}\nUNIQUEMENT le post.`}]})});const d=await res.json();setResults(prev=>[...prev,{id:Date.now()+Math.random(),platform:plt,contenu:d.choices[0].message.content.trim(),date:new Date().toLocaleDateString('fr-FR'),statut:'brouillon'}])}}catch(e){console.error(e)}setLoading(false)}
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.9)',zIndex:1000,display:'flex',alignItems:'flex-start',justifyContent:'center',padding:20,overflowY:'auto'}} onClick={e=>{if(e.target===e.currentTarget)onClose()}}>
       <div style={{background:'#1a1d24',border:'1px solid rgba(255,255,255,0.1)',borderRadius:16,width:'100%',maxWidth:760,padding:28,marginTop:20}}>
@@ -183,14 +215,13 @@ function RepurposePanel({ project, onClose, onAddPosts }) {
   )
 }
 
-// ── TAB CONTENU ───────────────────────────────────────────────────
 function TabContenu({ project }) {
   const platforms=project.reseaux||['linkedin','facebook','discord','youtube']
   const plt_icon=ALL_PLATFORMS.reduce((acc,p)=>({...acc,[p.id]:p.icon}),{})
   const [prompt,setPrompt]=useState(''),[loading,setLoading]=useState(false),[genAll,setGenAll]=useState(false)
   const [posts,setPosts]=useState([]),[platform,setPlatform]=useState(platforms[0]||'linkedin')
   const [analysing,setAnalysing]=useState(null),[repurpose,setRepurpose]=useState(false)
-  const [publishing,setPublishing]=useState(null) // id du post en cours de publication
+  const [publishing,setPublishing]=useState(null)
 
   useEffect(()=>{if(!platforms.includes(platform))setPlatform(platforms[0])},[project.id])
 
@@ -200,21 +231,12 @@ function TabContenu({ project }) {
   const supprimer=(id)=>setPosts(prev=>prev.filter(p=>p.id!==id))
   const rewrite=(id,c)=>setPosts(prev=>prev.map(p=>p.id===id?{...p,contenu:c}:p))
   const addPosts=(np)=>setPosts(prev=>[...np,...prev])
-
-  const publier = async (p) => {
-    setPublishing(p.id)
-    try {
-      await publierPost(p.platform, p.contenu)
-      setPosts(prev => prev.map(x => x.id===p.id ? {...x, statut:'publie'} : x))
-    } catch(e) { console.error(e) }
-    setPublishing(null)
-  }
+  const publier=async(p)=>{setPublishing(p.id);try{await publierPost(p.platform,p.contenu);setPosts(prev=>prev.map(x=>x.id===p.id?{...x,statut:'publie'}:x))}catch(e){console.error(e)}setPublishing(null)}
 
   return(
     <div style={{display:'flex',gap:24,height:'100%'}}>
       {analysing&&<ScorePanel post={analysing} project={project} onClose={()=>setAnalysing(null)} onRewrite={(c)=>rewrite(analysing.id,c)}/>}
       {repurpose&&<RepurposePanel project={project} onClose={()=>setRepurpose(false)} onAddPosts={addPosts}/>}
-
       <div style={{flex:1,display:'flex',flexDirection:'column',gap:14}}>
         <div style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:14,padding:20}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}><h3 style={{fontSize:14,fontWeight:700,color:'#EDE8DB',margin:0}}>🤖 Génération IA</h3><button onClick={()=>setRepurpose(true)} style={{padding:'6px 14px',borderRadius:20,border:'1px solid rgba(255,255,255,0.15)',background:'rgba(255,255,255,0.04)',color:'rgba(237,232,219,0.6)',fontSize:11,fontWeight:700,cursor:'pointer'}}>♻️ Repurpose</button></div>
@@ -227,47 +249,47 @@ function TabContenu({ project }) {
         </div>
         <div style={{background:'rgba(255,255,255,0.02)',border:'2px dashed rgba(255,255,255,0.08)',borderRadius:14,padding:20,textAlign:'center',cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(255,255,255,0.2)'} onMouseLeave={e=>e.currentTarget.style.borderColor='rgba(255,255,255,0.08)'}><div style={{fontSize:28,marginBottom:6}}>📎</div><p style={{fontSize:13,color:'rgba(237,232,219,0.4)',margin:0}}>Glisse tes fichiers ici</p><p style={{fontSize:11,color:'rgba(237,232,219,0.2)',margin:'4px 0 0'}}>Images · Vidéos · PDF · Documents</p></div>
       </div>
-
       <div style={{width:340,display:'flex',flexDirection:'column',gap:10,overflowY:'auto'}}>
         <h3 style={{fontSize:11,fontWeight:700,color:'rgba(237,232,219,0.4)',textTransform:'uppercase',letterSpacing:'0.08em',flexShrink:0}}>Posts générés {posts.length>0&&`(${posts.length})`}</h3>
-        {posts.length===0
-          ?<div style={{background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.06)',borderRadius:12,padding:24,textAlign:'center',color:'rgba(237,232,219,0.3)',fontSize:13}}>Aucun post encore.<br/>Génère ton premier post ✨</div>
-          :posts.map(p=>(
-            <div key={p.id} style={{background:'rgba(255,255,255,0.03)',border:`1px solid ${p.statut==='publie'?'rgba(91,199,138,0.3)':'rgba(255,255,255,0.07)'}`,borderRadius:12,padding:14,flexShrink:0}}>
-              <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
-                <span style={{fontSize:10,fontWeight:700,color:project.color,textTransform:'uppercase'}}>{plt_icon[p.platform]||'📱'} {p.platform}</span>
-                <div style={{display:'flex',alignItems:'center',gap:6}}>
-                  {p.statut==='publie' && <span style={{fontSize:9,color:'#5BC78A',fontWeight:700}}>✅ Publié</span>}
-                  <span style={{fontSize:10,color:'rgba(237,232,219,0.3)'}}>{p.date}</span>
-                </div>
-              </div>
-              <p style={{fontSize:12,color:'rgba(237,232,219,0.75)',lineHeight:1.6,margin:'0 0 10px',whiteSpace:'pre-wrap',maxHeight:140,overflow:'hidden'}}>{p.contenu}</p>
-              <div style={{display:'flex',gap:5}}>
-                <button onClick={()=>copier(p.contenu)} style={{flex:1,padding:'6px',borderRadius:7,border:'none',background:project.color,color:'#0D1B2A',fontSize:11,fontWeight:700,cursor:'pointer'}}>📋 Copier</button>
-                <button onClick={()=>setAnalysing(p)} style={{padding:'6px 8px',borderRadius:7,border:`1px solid ${project.color}40`,background:`${project.color}10`,color:project.color,fontSize:11,cursor:'pointer'}} title="Score">🎯</button>
-                <button
-                  onClick={()=>publier(p)}
-                  disabled={publishing===p.id}
-                  style={{padding:'6px 10px',borderRadius:7,border:'1px solid rgba(91,199,138,0.4)',background:'rgba(91,199,138,0.1)',color:'#5BC78A',fontSize:11,fontWeight:700,cursor:publishing===p.id?'not-allowed':'pointer'}}>
-                  {publishing===p.id?'⏳':'🚀 Publier'}
-                </button>
-                <button onClick={()=>supprimer(p.id)} style={{padding:'6px 8px',borderRadius:7,border:'1px solid rgba(199,91,78,0.2)',background:'transparent',color:'#C75B4E',fontSize:11,cursor:'pointer'}}>🗑️</button>
-              </div>
+        {posts.length===0?<div style={{background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.06)',borderRadius:12,padding:24,textAlign:'center',color:'rgba(237,232,219,0.3)',fontSize:13}}>Aucun post encore.<br/>Génère ton premier post ✨</div>:posts.map(p=>(
+          <div key={p.id} style={{background:'rgba(255,255,255,0.03)',border:`1px solid ${p.statut==='publie'?'rgba(91,199,138,0.3)':'rgba(255,255,255,0.07)'}`,borderRadius:12,padding:14,flexShrink:0}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+              <span style={{fontSize:10,fontWeight:700,color:project.color,textTransform:'uppercase'}}>{plt_icon[p.platform]||'📱'} {p.platform}</span>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>{p.statut==='publie'&&<span style={{fontSize:9,color:'#5BC78A',fontWeight:700}}>✅ Publié</span>}<span style={{fontSize:10,color:'rgba(237,232,219,0.3)'}}>{p.date}</span></div>
             </div>
-          ))
-        }
+            <p style={{fontSize:12,color:'rgba(237,232,219,0.75)',lineHeight:1.6,margin:'0 0 10px',whiteSpace:'pre-wrap',maxHeight:140,overflow:'hidden'}}>{p.contenu}</p>
+            <div style={{display:'flex',gap:5}}>
+              <button onClick={()=>copier(p.contenu)} style={{flex:1,padding:'6px',borderRadius:7,border:'none',background:project.color,color:'#0D1B2A',fontSize:11,fontWeight:700,cursor:'pointer'}}>📋 Copier</button>
+              <button onClick={()=>setAnalysing(p)} style={{padding:'6px 8px',borderRadius:7,border:`1px solid ${project.color}40`,background:`${project.color}10`,color:project.color,fontSize:11,cursor:'pointer'}} title="Score">🎯</button>
+              <button onClick={()=>publier(p)} disabled={publishing===p.id} style={{padding:'6px 10px',borderRadius:7,border:'1px solid rgba(91,199,138,0.4)',background:'rgba(91,199,138,0.1)',color:'#5BC78A',fontSize:11,fontWeight:700,cursor:publishing===p.id?'not-allowed':'pointer'}}>{publishing===p.id?'⏳':'🚀 Publier'}</button>
+              <button onClick={()=>supprimer(p.id)} style={{padding:'6px 8px',borderRadius:7,border:'1px solid rgba(199,91,78,0.2)',background:'transparent',color:'#C75B4E',fontSize:11,cursor:'pointer'}}>🗑️</button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
 }
 
+// ── APP ───────────────────────────────────────────────────────────
 export default function App() {
   const [projects,      setProjects]      = useState(loadProjects)
   const [activeProject, setActiveProject] = useState(loadProjects()[0]?.id||'vigie')
   const [activeTab,     setActiveTab]     = useState('contenu')
   const [projetModal,   setProjetModal]   = useState(null)
+  const [themeModal,    setThemeModal]    = useState(false)
+  const [theme,         setTheme]         = useState(() => {
+    try { const s = localStorage.getItem(STORAGE_KEY_THEME); return s ? JSON.parse(s) : BG_THEMES[0] }
+    catch { return BG_THEMES[0] }
+  })
 
   const project = projects.find(p=>p.id===activeProject)||projects[0]
+
+  const selectTheme = (t) => {
+    setTheme(t)
+    localStorage.setItem(STORAGE_KEY_THEME, JSON.stringify(t))
+  }
+
   const saveProjects = (p) => { localStorage.setItem(STORAGE_KEY_PROJECTS,JSON.stringify(p)); setProjects(p) }
   const handleSaveProjet = (form) => {
     const exists=projects.find(p=>p.id===form.id)
@@ -279,23 +301,37 @@ export default function App() {
   const supprimerProjet=(id)=>{if(projects.length<=1)return;if(!confirm('Supprimer ?'))return;const updated=projects.filter(p=>p.id!==id);saveProjects(updated);if(activeProject===id)setActiveProject(updated[0].id)}
 
   return (
-    <div style={{fontFamily:"'Nunito Sans',sans-serif",background:'#0D1B2A',color:'#EDE8DB',height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
-      {projetModal&&<ProjetModal projet={projetModal==='new'?{}:projetModal} onSave={handleSaveProjet} onClose={()=>setProjetModal(null)}/>}
+    <div style={{fontFamily:"'Nunito Sans',sans-serif",background:theme.bg,color:'#EDE8DB',height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden',position:'relative'}}>
 
-      <div style={{height:52,background:'rgba(0,0,0,0.3)',borderBottom:'1px solid rgba(255,255,255,0.06)',display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 20px',flexShrink:0}}>
+      {/* ── GRAIN TEXTURE ── */}
+      <div style={{position:'fixed',inset:0,pointerEvents:'none',zIndex:0,opacity:0.035,backgroundImage:`url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,backgroundRepeat:'repeat',backgroundSize:'128px'}}/>
+
+      {projetModal&&<ProjetModal projet={projetModal==='new'?{}:projetModal} onSave={handleSaveProjet} onClose={()=>setProjetModal(null)}/>}
+      {themeModal&&<ThemeModal currentTheme={theme} onSelect={selectTheme} onClose={()=>setThemeModal(false)}/>}
+
+      {/* TOPBAR */}
+      <div style={{height:52,background:'rgba(0,0,0,0.35)',borderBottom:'1px solid rgba(255,255,255,0.06)',display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 20px',flexShrink:0,position:'relative',zIndex:1}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <div style={{width:28,height:28,borderRadius:8,background:`linear-gradient(135deg,${project.color},#0D1B2A)`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>{project.emoji}</div>
-          <span style={{fontFamily:"'Georgia',serif",fontSize:16,fontWeight:700,color:'#EDE8DB'}}>Pilotage</span>
+          <div style={{width:28,height:28,borderRadius:8,background:`linear-gradient(135deg,${project.color},${theme.bg})`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>{project.emoji}</div>
+          <span style={{fontFamily:"'Georgia',serif",fontSize:16,fontWeight:700,color:'#EDE8DB',letterSpacing:'0.02em'}}>Pilotage</span>
           <span style={{fontSize:11,color:'rgba(237,232,219,0.3)',background:'rgba(255,255,255,0.05)',padding:'2px 8px',borderRadius:10}}>Syon</span>
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:8}}>
-          <div style={{width:8,height:8,borderRadius:'50%',background:'#5BC78A'}}/>
-          <span style={{fontSize:11,color:'rgba(237,232,219,0.3)'}}>v0.6.0</span>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          {/* Bouton thème */}
+          <button onClick={()=>setThemeModal(true)} title="Changer le fond"
+            style={{display:'flex',alignItems:'center',gap:6,padding:'5px 10px',borderRadius:8,border:'1px solid rgba(255,255,255,0.1)',background:'rgba(255,255,255,0.04)',cursor:'pointer',color:'rgba(237,232,219,0.5)',fontSize:11}}>
+            🎨 <span style={{display:'inline-block',width:12,height:12,borderRadius:'50%',background:theme.bg,border:'1px solid rgba(255,255,255,0.3)'}}/>
+          </button>
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            <div style={{width:8,height:8,borderRadius:'50%',background:'#5BC78A'}}/>
+            <span style={{fontSize:11,color:'rgba(237,232,219,0.3)'}}>v0.7.0</span>
+          </div>
         </div>
       </div>
 
-      <div style={{display:'flex',flex:1,overflow:'hidden'}}>
-        <div style={{width:200,background:'rgba(0,0,0,0.2)',borderRight:'1px solid rgba(255,255,255,0.06)',display:'flex',flexDirection:'column',padding:'16px 10px',gap:4,flexShrink:0,overflowY:'auto'}}>
+      <div style={{display:'flex',flex:1,overflow:'hidden',position:'relative',zIndex:1}}>
+        {/* SIDEBAR */}
+        <div style={{width:200,background:'rgba(0,0,0,0.25)',borderRight:'1px solid rgba(255,255,255,0.06)',display:'flex',flexDirection:'column',padding:'16px 10px',gap:4,flexShrink:0,overflowY:'auto'}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 8px',marginBottom:8}}>
             <p style={{fontSize:9,fontWeight:700,color:'rgba(237,232,219,0.25)',textTransform:'uppercase',letterSpacing:'0.1em',margin:0}}>Projets</p>
             <button onClick={()=>setProjetModal('new')} style={{background:'transparent',border:'none',cursor:'pointer',color:'rgba(237,232,219,0.3)',fontSize:16,lineHeight:1,padding:0}} onMouseEnter={e=>e.currentTarget.style.color='#EDE8DB'} onMouseLeave={e=>e.currentTarget.style.color='rgba(237,232,219,0.3)'}>+</button>
@@ -326,6 +362,7 @@ export default function App() {
           </div>
         </div>
 
+        {/* CONTENU */}
         <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
           <div style={{padding:'16px 24px 14px',borderBottom:'1px solid rgba(255,255,255,0.06)',flexShrink:0,display:'flex',alignItems:'center',gap:10}}>
             <span style={{fontSize:20}}>{TABS.find(t=>t.id===activeTab)?.emoji}</span>
@@ -343,7 +380,15 @@ export default function App() {
           </div>
         </div>
       </div>
-      <style>{`*{box-sizing:border-box;margin:0;padding:0;}body{overflow:hidden;}::-webkit-scrollbar{width:6px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px;}button,textarea,input,select{font-family:'Nunito Sans',sans-serif;}`}</style>
+
+      <style>{`
+        *{box-sizing:border-box;margin:0;padding:0;}
+        body{overflow:hidden;}
+        ::-webkit-scrollbar{width:6px;}
+        ::-webkit-scrollbar-track{background:transparent;}
+        ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px;}
+        button,textarea,input,select{font-family:'Nunito Sans',sans-serif;}
+      `}</style>
     </div>
   )
 }
