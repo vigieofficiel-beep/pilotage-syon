@@ -5,6 +5,7 @@ import PageMonitoring from './pages/PageMonitoring'
 import PageFinances from './pages/PageFinances'
 import PageSAV from './pages/PageSAV'
 import PageProspects from './pages/PageProspects'
+import PageCalendrier from './pages/PageCalendrier'
 
 const PROJECTS_DEFAULT = [
   { id:'vigie',        label:'Vigie',        color:'#5BA3C7', emoji:'🛡️', reseaux:['linkedin','facebook','discord','youtube'] },
@@ -43,6 +44,7 @@ const BG_THEMES = [
 
 const TABS = [
   { id:'contenu',          label:'Contenu',          emoji:'✍️' },
+  { id:'calendrier',       label:'Calendrier',        emoji:'📅' },
   { id:'monitoring',       label:'Alertes & Coûts',  emoji:'📊' },
   { id:'vault',            label:'Coffre-fort',       emoji:'🔐' },
   { id:'finances',         label:'Finances',          emoji:'💰' },
@@ -51,7 +53,7 @@ const TABS = [
   { id:'personnalisation', label:'Personnalisation',  emoji:'⚙️' },
 ]
 
-const ACTIVE_TABS = ['contenu','personnalisation','vault','monitoring','finances','sav','prospects']
+const ACTIVE_TABS = ['contenu','personnalisation','vault','monitoring','finances','sav','prospects','calendrier']
 const STORAGE_KEY_PROJECTS = 'pilotage_projects'
 const STORAGE_KEY_THEME    = 'pilotage_theme'
 
@@ -280,7 +282,6 @@ export default function App() {
   })
 
   const project = projects.find(p=>p.id===activeProject)||projects[0]
-
   const selectTheme = (t) => { setTheme(t); localStorage.setItem(STORAGE_KEY_THEME, JSON.stringify(t)) }
   const saveProjects = (p) => { localStorage.setItem(STORAGE_KEY_PROJECTS,JSON.stringify(p)); setProjects(p) }
   const handleSaveProjet = (form) => {
@@ -294,14 +295,11 @@ export default function App() {
 
   return (
     <div style={{fontFamily:"'Nunito Sans',sans-serif",background:theme.bg,color:'#EDE8DB',height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden',position:'relative'}}>
-
-      {/* GRAIN */}
       <div style={{position:'fixed',inset:0,pointerEvents:'none',zIndex:0,opacity:0.035,backgroundImage:`url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,backgroundRepeat:'repeat',backgroundSize:'128px'}}/>
 
       {projetModal&&<ProjetModal projet={projetModal==='new'?{}:projetModal} onSave={handleSaveProjet} onClose={()=>setProjetModal(null)}/>}
       {themeModal&&<ThemeModal currentTheme={theme} onSelect={selectTheme} onClose={()=>setThemeModal(false)}/>}
 
-      {/* TOPBAR */}
       <div style={{height:52,background:'rgba(0,0,0,0.35)',borderBottom:'1px solid rgba(255,255,255,0.06)',display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 20px',flexShrink:0,position:'relative',zIndex:1}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <div style={{width:28,height:28,borderRadius:8,background:`linear-gradient(135deg,${project.color},${theme.bg})`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>{project.emoji}</div>
@@ -309,19 +307,17 @@ export default function App() {
           <span style={{fontSize:11,color:'rgba(237,232,219,0.3)',background:'rgba(255,255,255,0.05)',padding:'2px 8px',borderRadius:10}}>Syon</span>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:12}}>
-          <button onClick={()=>setThemeModal(true)} title="Changer le fond"
-            style={{display:'flex',alignItems:'center',gap:6,padding:'5px 10px',borderRadius:8,border:'1px solid rgba(255,255,255,0.1)',background:'rgba(255,255,255,0.04)',cursor:'pointer',color:'rgba(237,232,219,0.5)',fontSize:11}}>
+          <button onClick={()=>setThemeModal(true)} style={{display:'flex',alignItems:'center',gap:6,padding:'5px 10px',borderRadius:8,border:'1px solid rgba(255,255,255,0.1)',background:'rgba(255,255,255,0.04)',cursor:'pointer',color:'rgba(237,232,219,0.5)',fontSize:11}}>
             🎨 <span style={{display:'inline-block',width:12,height:12,borderRadius:'50%',background:theme.bg,border:'1px solid rgba(255,255,255,0.3)'}}/>
           </button>
           <div style={{display:'flex',alignItems:'center',gap:6}}>
             <div style={{width:8,height:8,borderRadius:'50%',background:'#5BC78A'}}/>
-            <span style={{fontSize:11,color:'rgba(237,232,219,0.3)'}}>v0.7.0</span>
+            <span style={{fontSize:11,color:'rgba(237,232,219,0.3)'}}>v0.8.0</span>
           </div>
         </div>
       </div>
 
       <div style={{display:'flex',flex:1,overflow:'hidden',position:'relative',zIndex:1}}>
-        {/* SIDEBAR */}
         <div style={{width:200,background:'rgba(0,0,0,0.25)',borderRight:'1px solid rgba(255,255,255,0.06)',display:'flex',flexDirection:'column',padding:'16px 10px',gap:4,flexShrink:0,overflowY:'auto'}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 8px',marginBottom:8}}>
             <p style={{fontSize:9,fontWeight:700,color:'rgba(237,232,219,0.25)',textTransform:'uppercase',letterSpacing:'0.1em',margin:0}}>Projets</p>
@@ -353,7 +349,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* CONTENU */}
         <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
           <div style={{padding:'16px 24px 14px',borderBottom:'1px solid rgba(255,255,255,0.06)',flexShrink:0,display:'flex',alignItems:'center',gap:10}}>
             <span style={{fontSize:20}}>{TABS.find(t=>t.id===activeTab)?.emoji}</span>
@@ -362,6 +357,7 @@ export default function App() {
           </div>
           <div style={{flex:1,padding:24,overflowY:'auto'}}>
             {activeTab==='contenu'          && <TabContenu project={project}/>}
+            {activeTab==='calendrier'       && <PageCalendrier project={project} projects={projects}/>}
             {activeTab==='personnalisation' && <PagePersonnalisation project={project}/>}
             {activeTab==='vault'            && <PageVault project={project} projects={projects}/>}
             {activeTab==='monitoring'       && <PageMonitoring project={project}/>}
@@ -372,14 +368,7 @@ export default function App() {
         </div>
       </div>
 
-      <style>{`
-        *{box-sizing:border-box;margin:0;padding:0;}
-        body{overflow:hidden;}
-        ::-webkit-scrollbar{width:6px;}
-        ::-webkit-scrollbar-track{background:transparent;}
-        ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px;}
-        button,textarea,input,select{font-family:'Nunito Sans',sans-serif;}
-      `}</style>
+      <style>{`*{box-sizing:border-box;margin:0;padding:0;}body{overflow:hidden;}::-webkit-scrollbar{width:6px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px;}button,textarea,input,select{font-family:'Nunito Sans',sans-serif;}`}</style>
     </div>
   )
 }
