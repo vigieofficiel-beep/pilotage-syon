@@ -30,22 +30,21 @@ const PALETTE = [
   '#FF8C42','#FFE66D','#4ECDC4','#45B7D1','#96CEB4',
 ]
 
-// Palettes de fond disponibles
 const BG_THEMES = [
-  { id:'midnight',  label:'Midnight',   bg:'#0D1B2A', grain:true  },
-  { id:'obsidian',  label:'Obsidian',   bg:'#0f0f13', grain:true  },
-  { id:'slate',     label:'Slate',      bg:'#141a24', grain:true  },
-  { id:'forest',    label:'Forest',     bg:'#0d1f1a', grain:true  },
-  { id:'charcoal',  label:'Charcoal',   bg:'#1a1a1a', grain:true  },
-  { id:'navy',      label:'Navy',       bg:'#0a1628', grain:true  },
-  { id:'plum',      label:'Plum',       bg:'#1a0d24', grain:true  },
-  { id:'carbon',    label:'Carbon',     bg:'#111318', grain:true  },
+  { id:'midnight',  label:'Midnight',   bg:'#0D1B2A' },
+  { id:'obsidian',  label:'Obsidian',   bg:'#0f0f13' },
+  { id:'slate',     label:'Slate',      bg:'#141a24' },
+  { id:'forest',    label:'Forest',     bg:'#0d1f1a' },
+  { id:'charcoal',  label:'Charcoal',   bg:'#1a1a1a' },
+  { id:'navy',      label:'Navy',       bg:'#0a1628' },
+  { id:'plum',      label:'Plum',       bg:'#1a0d24' },
+  { id:'carbon',    label:'Carbon',     bg:'#111318' },
 ]
 
 const TABS = [
   { id:'contenu',          label:'Contenu',          emoji:'✍️' },
-  { id:'monitoring',       label:'Monitoring',        emoji:'📊' },
-  { id:'vault',            label:'Vault',             emoji:'🔐' },
+  { id:'monitoring',       label:'Alertes & Coûts',  emoji:'📊' },
+  { id:'vault',            label:'Coffre-fort',       emoji:'🔐' },
   { id:'finances',         label:'Finances',          emoji:'💰' },
   { id:'sav',              label:'SAV',               emoji:'💬' },
   { id:'prospects',        label:'Prospects',         emoji:'🎯' },
@@ -113,7 +112,6 @@ async function publierPost(platform, contenu) {
   window.open(urls[platform] || urls.linkedin, '_blank')
 }
 
-// ── MODAL THEME ───────────────────────────────────────────────────
 function ThemeModal({ currentTheme, onSelect, onClose }) {
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:3000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget)onClose()}}>
@@ -123,7 +121,7 @@ function ThemeModal({ currentTheme, onSelect, onClose }) {
           {BG_THEMES.map(t => (
             <button key={t.id} onClick={() => { onSelect(t); onClose() }}
               style={{padding:'14px 16px',borderRadius:12,border:`2px solid ${currentTheme.id===t.id?'#EDE8DB':'rgba(255,255,255,0.1)'}`,background:t.bg,cursor:'pointer',display:'flex',alignItems:'center',gap:10,transition:'all 0.15s'}}>
-              <div style={{width:20,height:20,borderRadius:'50%',background:t.bg,border:'2px solid rgba(255,255,255,0.2)',boxShadow:'inset 0 0 0 1px rgba(255,255,255,0.05)'}}/>
+              <div style={{width:20,height:20,borderRadius:'50%',background:t.bg,border:'2px solid rgba(255,255,255,0.2)'}}/>
               <span style={{fontSize:12,fontWeight:currentTheme.id===t.id?700:400,color:'#EDE8DB'}}>{t.label}</span>
               {currentTheme.id===t.id && <span style={{marginLeft:'auto',fontSize:12}}>✓</span>}
             </button>
@@ -135,7 +133,6 @@ function ThemeModal({ currentTheme, onSelect, onClose }) {
   )
 }
 
-// ── MODAL PROJET ──────────────────────────────────────────────────
 function ProjetModal({ projet, onSave, onClose }) {
   const isNew = !projet.id
   const [form, setForm] = useState(projet.id ? {...projet} : {id:Date.now().toString(),label:'',emoji:'🚀',color:'#5BA3C7',reseaux:['linkedin']})
@@ -271,7 +268,6 @@ function TabContenu({ project }) {
   )
 }
 
-// ── APP ───────────────────────────────────────────────────────────
 export default function App() {
   const [projects,      setProjects]      = useState(loadProjects)
   const [activeProject, setActiveProject] = useState(loadProjects()[0]?.id||'vigie')
@@ -285,11 +281,7 @@ export default function App() {
 
   const project = projects.find(p=>p.id===activeProject)||projects[0]
 
-  const selectTheme = (t) => {
-    setTheme(t)
-    localStorage.setItem(STORAGE_KEY_THEME, JSON.stringify(t))
-  }
-
+  const selectTheme = (t) => { setTheme(t); localStorage.setItem(STORAGE_KEY_THEME, JSON.stringify(t)) }
   const saveProjects = (p) => { localStorage.setItem(STORAGE_KEY_PROJECTS,JSON.stringify(p)); setProjects(p) }
   const handleSaveProjet = (form) => {
     const exists=projects.find(p=>p.id===form.id)
@@ -303,7 +295,7 @@ export default function App() {
   return (
     <div style={{fontFamily:"'Nunito Sans',sans-serif",background:theme.bg,color:'#EDE8DB',height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden',position:'relative'}}>
 
-      {/* ── GRAIN TEXTURE ── */}
+      {/* GRAIN */}
       <div style={{position:'fixed',inset:0,pointerEvents:'none',zIndex:0,opacity:0.035,backgroundImage:`url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,backgroundRepeat:'repeat',backgroundSize:'128px'}}/>
 
       {projetModal&&<ProjetModal projet={projetModal==='new'?{}:projetModal} onSave={handleSaveProjet} onClose={()=>setProjetModal(null)}/>}
@@ -317,7 +309,6 @@ export default function App() {
           <span style={{fontSize:11,color:'rgba(237,232,219,0.3)',background:'rgba(255,255,255,0.05)',padding:'2px 8px',borderRadius:10}}>Syon</span>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:12}}>
-          {/* Bouton thème */}
           <button onClick={()=>setThemeModal(true)} title="Changer le fond"
             style={{display:'flex',alignItems:'center',gap:6,padding:'5px 10px',borderRadius:8,border:'1px solid rgba(255,255,255,0.1)',background:'rgba(255,255,255,0.04)',cursor:'pointer',color:'rgba(237,232,219,0.5)',fontSize:11}}>
             🎨 <span style={{display:'inline-block',width:12,height:12,borderRadius:'50%',background:theme.bg,border:'1px solid rgba(255,255,255,0.3)'}}/>
