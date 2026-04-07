@@ -1,21 +1,70 @@
 import { useState, useEffect } from 'react'
 
 const SERVICES_DEFAULT = [
-  { id: 'openai',    nom: 'OpenAI',    url: 'https://platform.openai.com/usage',           emoji: '🤖', couleur: '#10a37f', seuil: 20,  cout_actuel: 0  },
-  { id: 'supabase',  nom: 'Supabase',  url: 'https://supabase.com/dashboard',              emoji: '🗄️', couleur: '#3ECF8E', seuil: 0,   cout_actuel: 0  },
-  { id: 'vercel',    nom: 'Vercel',    url: 'https://vercel.com/dashboard',                emoji: '▲',  couleur: '#ffffff', seuil: 0,   cout_actuel: 0  },
-  { id: 'resend',    nom: 'Resend',    url: 'https://resend.com/emails',                   emoji: '📧', couleur: '#5BA3C7', seuil: 10,  cout_actuel: 0  },
-  { id: 'stripe',    nom: 'Stripe',    url: 'https://dashboard.stripe.com',                emoji: '💳', couleur: '#635BFF', seuil: 0,   cout_actuel: 0  },
-  { id: 'ovh',       nom: 'OVH',       url: 'https://www.ovhcloud.com/fr/manager',         emoji: '🌐', couleur: '#123F6D', seuil: 0,   cout_actuel: 0  },
-  { id: 'n8n',       nom: 'n8n Cloud', url: 'https://app.n8n.cloud',                       emoji: '⚡', couleur: '#EA4B71', seuil: 0,   cout_actuel: 20 },
-  { id: 'anthropic', nom: 'Anthropic', url: 'https://console.anthropic.com/settings/usage',emoji: '🧠', couleur: '#D4A853', seuil: 20,  cout_actuel: 0  },
+  { id: 'openai',    nom: 'OpenAI',    url: 'https://platform.openai.com/usage',            emoji: '🤖', couleur: '#10a37f', seuil: 20,  cout_actuel: 0, api_key: '', auto_sync: false },
+  { id: 'supabase',  nom: 'Supabase',  url: 'https://supabase.com/dashboard',               emoji: '🗄️', couleur: '#3ECF8E', seuil: 0,   cout_actuel: 0, api_key: '', auto_sync: false },
+  { id: 'vercel',    nom: 'Vercel',    url: 'https://vercel.com/dashboard',                 emoji: '▲',  couleur: '#ffffff', seuil: 0,   cout_actuel: 0, api_key: '', auto_sync: false },
+  { id: 'resend',    nom: 'Resend',    url: 'https://resend.com/emails',                    emoji: '📧', couleur: '#5BA3C7', seuil: 10,  cout_actuel: 0, api_key: '', auto_sync: false },
+  { id: 'stripe',    nom: 'Stripe',    url: 'https://dashboard.stripe.com',                 emoji: '💳', couleur: '#635BFF', seuil: 0,   cout_actuel: 0, api_key: '', auto_sync: false },
+  { id: 'ovh',       nom: 'OVH',       url: 'https://www.ovhcloud.com/fr/manager',          emoji: '🌐', couleur: '#123F6D', seuil: 0,   cout_actuel: 0, api_key: '', auto_sync: false },
+  { id: 'n8n',       nom: 'n8n Cloud', url: 'https://app.n8n.cloud',                        emoji: '⚡', couleur: '#EA4B71', seuil: 0,   cout_actuel: 20, api_key: '', auto_sync: false },
+  { id: 'anthropic', nom: 'Anthropic', url: 'https://console.anthropic.com/settings/usage', emoji: '🧠', couleur: '#D4A853', seuil: 20,  cout_actuel: 0, api_key: '', auto_sync: false },
 ]
 
 const STORAGE_KEY = 'pilotage_monitoring'
 
 function loadData() {
-  try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : { services: SERVICES_DEFAULT, alertes: [] } }
+  try {
+    const s = localStorage.getItem(STORAGE_KEY)
+    const saved = s ? JSON.parse(s) : { services: SERVICES_DEFAULT, alertes: [] }
+    // Merge pour ajouter api_key/auto_sync aux services existants
+    const services = (saved.services || SERVICES_DEFAULT).map(svc => ({
+      api_key: '', auto_sync: false, ...svc
+    }))
+    return { ...saved, services }
+  }
   catch { return { services: SERVICES_DEFAULT, alertes: [] } }
+}
+
+// ── SYNC APIS ─────────────────────────────────────────────────────
+
+async function syncOpenAI(apiKey) {
+  // OpenAI : récupère l'usage du mois en cours
+  const now   = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth(), 1)
+  const startStr = start.toISOString().split('T')[0]
+  const endStr   = now.toISOString().split('T')[0]
+
+  const res = await fetch(`https://api.openai.com/v1/dashboard/billing/usage?start_date=${startStr}&end_date=${endStr}`, {
+    headers: { 'Authorization': `Bearer ${apiKey}` }
+  })
+  if (!res.ok) throw new Error('Clé OpenAI invalide ou accès refusé')
+  const data = await res.json()
+  // total_usage est en centimes
+  return parseFloat((data.total_usage / 100).toFixed(2))
+}
+
+async function syncStripe(apiKey) {
+  // Stripe : récupère le balance (montant disponible)
+  const res = await fetch('https://api.stripe.com/v1/balance', {
+    headers: { 'Authorization': `Bearer ${apiKey}` }
+  })
+  if (!res.ok) throw new Error('Clé Stripe invalide')
+  const data = await res.json()
+  // Stripe retourne en centimes
+  const available = data.available?.[0]?.amount || 0
+  return parseFloat((available / 100).toFixed(2))
+}
+
+async function syncAnthropicUsage(apiKey) {
+  // Anthropic : pas d'API usage publique — on retourne une erreur claire
+  throw new Error('Anthropic ne fournit pas d\'API usage publique. Mets à jour manuellement.')
+}
+
+const SYNC_FN = {
+  openai:    syncOpenAI,
+  stripe:    syncStripe,
+  anthropic: syncAnthropicUsage,
 }
 
 export default function PageMonitoring({ project }) {
@@ -24,11 +73,30 @@ export default function PageMonitoring({ project }) {
   const [showForm,    setShowForm]    = useState(false)
   const [editService, setEditService] = useState(null)
   const [msg,         setMsg]         = useState(null)
+  const [syncing,     setSyncing]     = useState({}) // { serviceId: true/false }
+  const [showApiKey,  setShowApiKey]  = useState({}) // { serviceId: true/false }
 
   const save = (newData) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newData))
     setData(newData)
   }
+
+  // Auto-sync au chargement pour les services avec auto_sync activé
+  useEffect(() => {
+    const autoSync = async () => {
+      const services = data.services || []
+      for (const s of services) {
+        if (s.auto_sync && s.api_key && SYNC_FN[s.id]) {
+          try {
+            const cout = await SYNC_FN[s.id](s.api_key)
+            const updated = services.map(x => x.id === s.id ? { ...x, cout_actuel: cout } : x)
+            save({ ...data, services: updated })
+          } catch(e) { /* silencieux en auto */ }
+        }
+      }
+    }
+    autoSync()
+  }, [])
 
   const services  = data.services || SERVICES_DEFAULT
   const totalMois = services.reduce((acc, s) => acc + (parseFloat(s.cout_actuel) || 0), 0)
@@ -36,7 +104,7 @@ export default function PageMonitoring({ project }) {
 
   const openEdit = (s) => { setEditService({ ...s }); setEditId(s.id); setShowForm(true) }
   const openNew  = () => {
-    setEditService({ id: Date.now().toString(), nom: '', url: '', emoji: '🔧', couleur: '#5BA3C7', seuil: 0, cout_actuel: 0 })
+    setEditService({ id: Date.now().toString(), nom: '', url: '', emoji: '🔧', couleur: '#5BA3C7', seuil: 0, cout_actuel: 0, api_key: '', auto_sync: false })
     setEditId(null); setShowForm(true)
   }
 
@@ -64,7 +132,33 @@ export default function PageMonitoring({ project }) {
     save({ ...data, services: updated })
   }
 
+  const syncService = async (s) => {
+    if (!SYNC_FN[s.id]) {
+      setMsg('⚠️ Sync automatique non disponible pour ce service — mets à jour manuellement.')
+      setTimeout(() => setMsg(null), 3000)
+      return
+    }
+    if (!s.api_key) {
+      setMsg(`⚠️ Ajoute d'abord ta clé API ${s.nom} dans ✏️ Modifier.`)
+      setTimeout(() => setMsg(null), 3000)
+      return
+    }
+    setSyncing(p => ({ ...p, [s.id]: true }))
+    try {
+      const cout = await SYNC_FN[s.id](s.api_key)
+      const updated = services.map(x => x.id === s.id ? { ...x, cout_actuel: cout } : x)
+      save({ ...data, services: updated })
+      setMsg(`✅ ${s.nom} synchronisé — ${cout}€ ce mois`)
+    } catch(e) {
+      setMsg(`❌ ${e.message}`)
+    }
+    setTimeout(() => setMsg(null), 4000)
+    setSyncing(p => ({ ...p, [s.id]: false }))
+  }
+
   const iS = { width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'#EDE8DB', fontSize:12, outline:'none', fontFamily:"'Nunito Sans',sans-serif", boxSizing:'border-box' }
+
+  const canSync = (id) => !!SYNC_FN[id]
 
   return (
     <div style={{ height:'100%', display:'flex', flexDirection:'column', gap:16 }}>
@@ -73,7 +167,7 @@ export default function PageMonitoring({ project }) {
       {showForm && editService && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
           onClick={e => { if(e.target===e.currentTarget) setShowForm(false) }}>
-          <div style={{ background:'#1a1d24', border:'1px solid rgba(255,255,255,0.1)', borderRadius:16, width:'100%', maxWidth:480, padding:28 }}>
+          <div style={{ background:'#1a1d24', border:'1px solid rgba(255,255,255,0.1)', borderRadius:16, width:'100%', maxWidth:500, padding:28, maxHeight:'90vh', overflowY:'auto' }}>
             <h3 style={{ fontSize:15, fontWeight:700, color:'#EDE8DB', marginBottom:20 }}>
               {editId ? '✏️ Modifier le service' : '➕ Nouveau service'}
             </h3>
@@ -89,9 +183,9 @@ export default function PageMonitoring({ project }) {
             </div>
             <div style={{ marginBottom:12 }}>
               <label style={{ fontSize:11, color:'rgba(237,232,219,0.4)', display:'block', marginBottom:4 }}>🔗 URL de gestion</label>
-              <input value={editService.url} onChange={e => setEditService(p=>({...p,url:e.target.value}))} placeholder="https://platform.openai.com/usage" style={iS}/>
+              <input value={editService.url} onChange={e => setEditService(p=>({...p,url:e.target.value}))} placeholder="https://..." style={iS}/>
             </div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:16 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
               <div>
                 <label style={{ fontSize:11, color:'rgba(237,232,219,0.4)', display:'block', marginBottom:4 }}>💰 Coût actuel (€)</label>
                 <input type="number" value={editService.cout_actuel} onChange={e => setEditService(p=>({...p,cout_actuel:e.target.value}))} placeholder="0" style={iS}/>
@@ -102,6 +196,40 @@ export default function PageMonitoring({ project }) {
                 <p style={{ fontSize:10, color:'rgba(237,232,219,0.3)', marginTop:4 }}>0 = pas d'alerte</p>
               </div>
             </div>
+
+            {/* Clé API */}
+            {canSync(editService.id) && (
+              <div style={{ marginBottom:12, padding:'12px 14px', background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:10 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                  <span style={{ fontSize:12, fontWeight:700, color:'#EDE8DB' }}>⚡ Connexion automatique</span>
+                  <span style={{ fontSize:10, background:'rgba(91,199,138,0.1)', color:'#5BC78A', padding:'1px 8px', borderRadius:10 }}>disponible</span>
+                </div>
+                <label style={{ fontSize:11, color:'rgba(237,232,219,0.4)', display:'block', marginBottom:4 }}>Clé API (stockée localement)</label>
+                <input
+                  type="password"
+                  value={editService.api_key||''}
+                  onChange={e => setEditService(p=>({...p,api_key:e.target.value}))}
+                  placeholder={editService.id==='openai'?'sk-...':editService.id==='stripe'?'sk_live_... ou sk_test_...':'Clé API'}
+                  style={iS}
+                />
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:8 }}>
+                  <input
+                    type="checkbox"
+                    id="auto_sync"
+                    checked={editService.auto_sync||false}
+                    onChange={e => setEditService(p=>({...p,auto_sync:e.target.checked}))}
+                    style={{ cursor:'pointer' }}
+                  />
+                  <label htmlFor="auto_sync" style={{ fontSize:11, color:'rgba(237,232,219,0.5)', cursor:'pointer' }}>
+                    Synchroniser automatiquement au démarrage
+                  </label>
+                </div>
+                <p style={{ fontSize:10, color:'rgba(237,232,219,0.25)', marginTop:6 }}>
+                  🔒 Ta clé reste sur ton ordinateur, jamais envoyée ailleurs.
+                </p>
+              </div>
+            )}
+
             <div style={{ display:'flex', gap:8 }}>
               <button onClick={sauvegarder}
                 style={{ flex:1, padding:'10px', borderRadius:10, border:'none', background:project.color, color:'#0D1B2A', fontSize:13, fontWeight:800, cursor:'pointer' }}>
@@ -137,7 +265,7 @@ export default function PageMonitoring({ project }) {
       </div>
 
       {msg && (
-        <div style={{ padding:'10px 14px', borderRadius:10, background:'rgba(91,199,138,0.1)', border:'1px solid rgba(91,199,138,0.2)', fontSize:13, color:'#5BC78A', flexShrink:0 }}>
+        <div style={{ padding:'10px 14px', borderRadius:10, background: msg.startsWith('❌') ? 'rgba(199,91,78,0.1)' : msg.startsWith('⚠️') ? 'rgba(212,168,83,0.1)' : 'rgba(91,199,138,0.1)', border:`1px solid ${msg.startsWith('❌') ? 'rgba(199,91,78,0.2)' : msg.startsWith('⚠️') ? 'rgba(212,168,83,0.2)' : 'rgba(91,199,138,0.2)'}`, fontSize:13, color: msg.startsWith('❌') ? '#C75B4E' : msg.startsWith('⚠️') ? '#D4A853' : '#5BC78A', flexShrink:0 }}>
           {msg}
         </div>
       )}
@@ -168,22 +296,26 @@ export default function PageMonitoring({ project }) {
       {/* LISTE SERVICES */}
       <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:8 }}>
         {services.map(s => {
-          const pct = s.seuil > 0 ? Math.min((parseFloat(s.cout_actuel) / parseFloat(s.seuil)) * 100, 100) : 0
+          const pct    = s.seuil > 0 ? Math.min((parseFloat(s.cout_actuel) / parseFloat(s.seuil)) * 100, 100) : 0
           const enAlert = s.seuil > 0 && parseFloat(s.cout_actuel) >= parseFloat(s.seuil)
+          const isSyncing = syncing[s.id]
+          const hasSync = canSync(s.id)
+          const hasKey  = !!s.api_key
+
           return (
             <div key={s.id} style={{ background:'rgba(255,255,255,0.03)', border:`1px solid ${enAlert ? 'rgba(199,91,78,0.3)' : 'rgba(255,255,255,0.07)'}`, borderRadius:12, padding:'14px 18px' }}>
               <div style={{ display:'flex', alignItems:'center', gap:14 }}>
 
-                {/* Icône */}
                 <div style={{ width:40, height:40, borderRadius:10, background:`${s.couleur}20`, border:`1px solid ${s.couleur}40`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>
                   {s.emoji}
                 </div>
 
-                {/* Infos */}
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6, flexWrap:'wrap' }}>
                     <span style={{ fontSize:14, fontWeight:700, color:'#EDE8DB' }}>{s.nom}</span>
                     {enAlert && <span style={{ fontSize:10, background:'rgba(199,91,78,0.15)', color:'#C75B4E', padding:'1px 8px', borderRadius:10, fontWeight:700 }}>⚠️ Seuil dépassé</span>}
+                    {hasSync && hasKey && <span style={{ fontSize:10, background:'rgba(91,199,138,0.1)', color:'#5BC78A', padding:'1px 8px', borderRadius:10 }}>⚡ Auto</span>}
+                    {hasSync && !hasKey && <span style={{ fontSize:10, background:'rgba(212,168,83,0.1)', color:'#D4A853', padding:'1px 8px', borderRadius:10 }}>🔑 Clé manquante</span>}
                     {s.url && (
                       <a href={s.url} target="_blank" rel="noreferrer"
                         style={{ fontSize:11, color:project.color, textDecoration:'none', background:`${project.color}15`, padding:'1px 8px', borderRadius:10 }}>
@@ -192,7 +324,6 @@ export default function PageMonitoring({ project }) {
                     )}
                   </div>
 
-                  {/* Barre de progression si seuil défini */}
                   {s.seuil > 0 && (
                     <div style={{ marginBottom:6 }}>
                       <div style={{ height:4, background:'rgba(255,255,255,0.06)', borderRadius:2, overflow:'hidden' }}>
@@ -206,7 +337,6 @@ export default function PageMonitoring({ project }) {
                   )}
                 </div>
 
-                {/* Coût éditable */}
                 <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
                   <div style={{ textAlign:'right' }}>
                     <p style={{ fontSize:10, color:'rgba(237,232,219,0.3)', margin:'0 0 4px' }}>Coût/mois</p>
@@ -219,6 +349,14 @@ export default function PageMonitoring({ project }) {
                     <p style={{ fontSize:10, color:'rgba(237,232,219,0.3)', margin:'2px 0 0', textAlign:'center' }}>€</p>
                   </div>
                   <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                    {/* Bouton sync si disponible */}
+                    {hasSync && (
+                      <button onClick={() => syncService(s)} disabled={isSyncing}
+                        title={hasKey ? 'Synchroniser avec l\'API' : 'Ajoute une clé API dans ✏️ Modifier'}
+                        style={{ padding:'5px 8px', borderRadius:7, border:`1px solid ${hasKey ? 'rgba(91,199,138,0.3)' : 'rgba(255,255,255,0.1)'}`, background: hasKey ? 'rgba(91,199,138,0.08)' : 'transparent', color: hasKey ? '#5BC78A' : 'rgba(237,232,219,0.3)', fontSize:11, cursor: isSyncing ? 'not-allowed' : 'pointer' }}>
+                        {isSyncing ? '⏳' : '🔄'}
+                      </button>
+                    )}
                     <button onClick={() => openEdit(s)}
                       style={{ padding:'5px 8px', borderRadius:7, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'rgba(237,232,219,0.5)', fontSize:11, cursor:'pointer' }}>
                       ✏️
