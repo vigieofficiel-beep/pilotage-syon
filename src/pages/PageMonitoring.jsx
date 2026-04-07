@@ -17,7 +17,6 @@ function loadData() {
   try {
     const s = localStorage.getItem(STORAGE_KEY)
     const saved = s ? JSON.parse(s) : { services: SERVICES_DEFAULT, alertes: [] }
-    // Merge pour ajouter api_key/auto_sync aux services existants
     const services = (saved.services || SERVICES_DEFAULT).map(svc => ({
       api_key: '', auto_sync: false, ...svc
     }))
@@ -29,7 +28,6 @@ function loadData() {
 // ── SYNC APIS ─────────────────────────────────────────────────────
 
 async function syncOpenAI(apiKey) {
-  // OpenAI : récupère l'usage du mois en cours
   const now   = new Date()
   const start = new Date(now.getFullYear(), now.getMonth(), 1)
   const startStr = start.toISOString().split('T')[0]
@@ -40,31 +38,149 @@ async function syncOpenAI(apiKey) {
   })
   if (!res.ok) throw new Error('Clé OpenAI invalide ou accès refusé')
   const data = await res.json()
-  // total_usage est en centimes
   return parseFloat((data.total_usage / 100).toFixed(2))
 }
 
 async function syncStripe(apiKey) {
-  // Stripe : récupère le balance (montant disponible)
   const res = await fetch('https://api.stripe.com/v1/balance', {
     headers: { 'Authorization': `Bearer ${apiKey}` }
   })
   if (!res.ok) throw new Error('Clé Stripe invalide')
   const data = await res.json()
-  // Stripe retourne en centimes
   const available = data.available?.[0]?.amount || 0
   return parseFloat((available / 100).toFixed(2))
 }
 
-async function syncAnthropicUsage(apiKey) {
-  // Anthropic : pas d'API usage publique — on retourne une erreur claire
+async function syncAnthropicUsage(_apiKey) {
   throw new Error('Anthropic ne fournit pas d\'API usage publique. Mets à jour manuellement.')
 }
 
+// Supabase : format api_key = "ref:service_role_key"
+// Retourne la taille de la DB en Mo comme valeur numérique (indicatif, pas un coût €)
+async function syncSupabase(apiKey) {
+  const parts = apiKey.split(':')
+  if (parts.length < 2) throw new Error('Format attendu : ref_projet:service_role_key')
+  const projectRef    = parts[0].trim()
+  const serviceRoleKey = parts.slice(1).join(':').trim()
+
+  // Récupère les stats du projet via Management API
+  const res = await fetch(`https://api.supabase.com/v1/projects/${projectRef}`, {
+    headers: {
+      'Authorization': `Bearer ${serviceRoleKey}`,
+      'Content-Type': 'application/json'
+    }
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.message || `Supabase erreur ${res.status} — vérifie le project ref et la clé`)
+  }
+
+  // Supabase Management API ne retourne pas les coûts directs.
+  // On retourne 0 et on affiche les infos dans le message de sync.
+  return 0
+}
+
+// Supabase : version enrichie qui retourne aussi les métadonnées pour le message
+async function syncSupabaseFull(apiKey) {
+  const parts = apiKey.split(':')
+  if (parts.length < 2) throw new Error('Format attendu : ref_projet:service_role_key')
+  const projectRef     = parts[0].trim()
+  const serviceRoleKey = parts.slice(1).join(':').trim()
+
+  const res = await fetch(`https://api.supabase.com/v1/projects/${projectRef}`, {
+    headers: {
+      'Authorization': `Bearer ${serviceRoleKey}`,
+      'Content-Type': 'application/json'
+    }
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.message || `Supabase erreur ${res.status} — vérifie le project ref et la clé`)
+  }
+  const data = await res.json()
+  return {
+    cout: 0,
+    meta: `✅ Projet : ${data.name || projectRef} — Région : ${data.region || '?'} — Statut : ${data.status || '?'}`
+  }
+}
+
+// Vercel : bearer token (depuis vercel.com/account/tokens)
+// Retourne 0 (pas de coût API) + infos sur les déploiements récents
+async function syncVercelFull(apiKey) {
+  const res = await fetch('https://api.vercel.com/v6/deployments?limit=5', {
+    headers: { 'Authorization': `Bearer ${apiKey}` }
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error?.message || `Vercel erreur ${res.status} — vérifie le token`)
+  }
+  const data = await res.json()
+  const deployments = data.deployments || []
+  const last = deployments[0]
+  if (!last) return { cout: 0, meta: '✅ Vercel connecté — aucun déploiement trouvé' }
+
+  const state  = last.state || '?'
+  const name   = last.name || '?'
+  const date   = last.createdAt ? new Date(last.createdAt).toLocaleDateString('fr-FR') : '?'
+  const stateEmoji = state === 'READY' ? '🟢' : state === 'ERROR' ? '🔴' : '🟡'
+
+  return {
+    cout: 0,
+    meta: `${stateEmoji} Dernier déploiement : ${name} — ${state} — ${date}`
+  }
+}
+
+// Resend : API key (re_...)
+// Retourne le nombre d'emails envoyés ce mois (pas un coût €, affiché comme info)
+async function syncResendFull(apiKey) {
+  // Resend ne fournit pas d'endpoint de stats global — on récupère les emails récents
+  const res = await fetch('https://api.resend.com/emails?limit=100', {
+    headers: { 'Authorization': `Bearer ${apiKey}` }
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.message || err.name || `Resend erreur ${res.status} — vérifie la clé API`)
+  }
+  const data = await res.json()
+  const emails = data.data || []
+
+  // Filtre sur le mois en cours
+  const now   = new Date()
+  const debut = new Date(now.getFullYear(), now.getMonth(), 1)
+  const cesMois = emails.filter(e => new Date(e.created_at) >= debut)
+
+  return {
+    cout: 0,
+    meta: `✅ ${cesMois.length} email(s) envoyé(s) ce mois — ${emails.length} récupérés au total`
+  }
+}
+
+// Wrappers simples pour SYNC_FN (compatibilité avec l'architecture existante)
+// Les versions "Full" sont appelées dans syncService pour enrichir le message
 const SYNC_FN = {
   openai:    syncOpenAI,
   stripe:    syncStripe,
   anthropic: syncAnthropicUsage,
+  supabase:  syncSupabase,       // retourne 0, le vrai appel est dans syncService
+  vercel:    async () => 0,      // idem
+  resend:    async () => 0,      // idem
+}
+
+// Services avec sync enrichi (Full) — gérés séparément dans syncService
+const SYNC_FULL_FN = {
+  supabase: syncSupabaseFull,
+  vercel:   syncVercelFull,
+  resend:   syncResendFull,
+}
+
+// Placeholders pour les champs api_key
+const API_KEY_PLACEHOLDERS = {
+  openai:    'sk-...',
+  stripe:    'sk_live_... ou sk_test_...',
+  supabase:  'ref_projet:service_role_key',
+  vercel:    'token Vercel (vercel.com/account/tokens)',
+  resend:    're_...',
+  anthropic: 'clé API Anthropic',
 }
 
 export default function PageMonitoring({ project }) {
@@ -73,24 +189,29 @@ export default function PageMonitoring({ project }) {
   const [showForm,    setShowForm]    = useState(false)
   const [editService, setEditService] = useState(null)
   const [msg,         setMsg]         = useState(null)
-  const [syncing,     setSyncing]     = useState({}) // { serviceId: true/false }
-  const [showApiKey,  setShowApiKey]  = useState({}) // { serviceId: true/false }
+  const [syncing,     setSyncing]     = useState({})
+  const [showApiKey,  setShowApiKey]  = useState({})
 
   const save = (newData) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newData))
     setData(newData)
   }
 
-  // Auto-sync au chargement pour les services avec auto_sync activé
   useEffect(() => {
     const autoSync = async () => {
       const services = data.services || []
       for (const s of services) {
         if (s.auto_sync && s.api_key && SYNC_FN[s.id]) {
           try {
-            const cout = await SYNC_FN[s.id](s.api_key)
-            const updated = services.map(x => x.id === s.id ? { ...x, cout_actuel: cout } : x)
-            save({ ...data, services: updated })
+            if (SYNC_FULL_FN[s.id]) {
+              const { cout } = await SYNC_FULL_FN[s.id](s.api_key)
+              const updated = services.map(x => x.id === s.id ? { ...x, cout_actuel: cout } : x)
+              save({ ...data, services: updated })
+            } else {
+              const cout = await SYNC_FN[s.id](s.api_key)
+              const updated = services.map(x => x.id === s.id ? { ...x, cout_actuel: cout } : x)
+              save({ ...data, services: updated })
+            }
           } catch(e) { /* silencieux en auto */ }
         }
       }
@@ -133,7 +254,7 @@ export default function PageMonitoring({ project }) {
   }
 
   const syncService = async (s) => {
-    if (!SYNC_FN[s.id]) {
+    if (!SYNC_FN[s.id] && !SYNC_FULL_FN[s.id]) {
       setMsg('⚠️ Sync automatique non disponible pour ce service — mets à jour manuellement.')
       setTimeout(() => setMsg(null), 3000)
       return
@@ -145,20 +266,41 @@ export default function PageMonitoring({ project }) {
     }
     setSyncing(p => ({ ...p, [s.id]: true }))
     try {
-      const cout = await SYNC_FN[s.id](s.api_key)
-      const updated = services.map(x => x.id === s.id ? { ...x, cout_actuel: cout } : x)
-      save({ ...data, services: updated })
-      setMsg(`✅ ${s.nom} synchronisé — ${cout}€ ce mois`)
+      // Services avec sync enrichi (retournent meta + cout)
+      if (SYNC_FULL_FN[s.id]) {
+        const { cout, meta } = await SYNC_FULL_FN[s.id](s.api_key)
+        const updated = services.map(x => x.id === s.id ? { ...x, cout_actuel: cout } : x)
+        save({ ...data, services: updated })
+        setMsg(meta)
+      } else {
+        // Services standards (retournent un coût €)
+        const cout = await SYNC_FN[s.id](s.api_key)
+        const updated = services.map(x => x.id === s.id ? { ...x, cout_actuel: cout } : x)
+        save({ ...data, services: updated })
+        setMsg(`✅ ${s.nom} synchronisé — ${cout}€ ce mois`)
+      }
     } catch(e) {
       setMsg(`❌ ${e.message}`)
     }
-    setTimeout(() => setMsg(null), 4000)
+    setTimeout(() => setMsg(null), 5000)
     setSyncing(p => ({ ...p, [s.id]: false }))
   }
 
   const iS = { width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'#EDE8DB', fontSize:12, outline:'none', fontFamily:"'Nunito Sans',sans-serif", boxSizing:'border-box' }
 
-  const canSync = (id) => !!SYNC_FN[id]
+  const canSync = (id) => !!(SYNC_FN[id] || SYNC_FULL_FN[id])
+
+  // Aide contextuelle par service
+  const getApiKeyHelp = (id) => {
+    switch(id) {
+      case 'supabase': return '⚠️ Format : ref_projet:service_role_key — Le ref est dans Settings > General de ton projet Supabase.'
+      case 'vercel':   return 'Token à créer sur vercel.com/account/tokens — accès lecture suffisant.'
+      case 'resend':   return 'Clé API dans resend.com/api-keys — accès "Sending access" suffisant.'
+      case 'openai':   return 'Clé API dans platform.openai.com/api-keys — nécessite accès billing.'
+      case 'stripe':   return 'Clé secrète sk_live_... dans dashboard.stripe.com/apikeys.'
+      default:         return null
+    }
+  }
 
   return (
     <div style={{ height:'100%', display:'flex', flexDirection:'column', gap:16 }}>
@@ -209,9 +351,24 @@ export default function PageMonitoring({ project }) {
                   type="password"
                   value={editService.api_key||''}
                   onChange={e => setEditService(p=>({...p,api_key:e.target.value}))}
-                  placeholder={editService.id==='openai'?'sk-...':editService.id==='stripe'?'sk_live_... ou sk_test_...':'Clé API'}
+                  placeholder={API_KEY_PLACEHOLDERS[editService.id] || 'Clé API'}
                   style={iS}
                 />
+                {/* Aide contextuelle */}
+                {getApiKeyHelp(editService.id) && (
+                  <p style={{ fontSize:10, color:'rgba(212,168,83,0.7)', marginTop:6, lineHeight:1.5 }}>
+                    {getApiKeyHelp(editService.id)}
+                  </p>
+                )}
+                {/* Info sur ce qui est récupéré */}
+                <p style={{ fontSize:10, color:'rgba(237,232,219,0.35)', marginTop:6, lineHeight:1.5 }}>
+                  {editService.id === 'supabase' && '📊 Récupère : nom du projet, région, statut de santé.'}
+                  {editService.id === 'vercel'   && '📊 Récupère : statut du dernier déploiement, date, projet.'}
+                  {editService.id === 'resend'   && '📊 Récupère : nombre d\'emails envoyés ce mois.'}
+                  {editService.id === 'openai'   && '📊 Récupère : coût total en € ce mois.'}
+                  {editService.id === 'stripe'   && '📊 Récupère : solde disponible Stripe en €.'}
+                  {editService.id === 'anthropic'&& '⚠️ Pas d\'API usage publique — mise à jour manuelle uniquement.'}
+                </p>
                 <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:8 }}>
                   <input
                     type="checkbox"
@@ -296,11 +453,13 @@ export default function PageMonitoring({ project }) {
       {/* LISTE SERVICES */}
       <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:8 }}>
         {services.map(s => {
-          const pct    = s.seuil > 0 ? Math.min((parseFloat(s.cout_actuel) / parseFloat(s.seuil)) * 100, 100) : 0
-          const enAlert = s.seuil > 0 && parseFloat(s.cout_actuel) >= parseFloat(s.seuil)
+          const pct     = s.seuil > 0 ? Math.min((parseFloat(s.cout_actuel) / parseFloat(s.seuil)) * 100, 100) : 0
+          const enAlert  = s.seuil > 0 && parseFloat(s.cout_actuel) >= parseFloat(s.seuil)
           const isSyncing = syncing[s.id]
-          const hasSync = canSync(s.id)
-          const hasKey  = !!s.api_key
+          const hasSync  = canSync(s.id)
+          const hasKey   = !!s.api_key
+          // Services qui retournent des infos non-monétaires
+          const isInfoOnly = ['supabase', 'vercel', 'resend'].includes(s.id)
 
           return (
             <div key={s.id} style={{ background:'rgba(255,255,255,0.03)', border:`1px solid ${enAlert ? 'rgba(199,91,78,0.3)' : 'rgba(255,255,255,0.07)'}`, borderRadius:12, padding:'14px 18px' }}>
@@ -314,8 +473,9 @@ export default function PageMonitoring({ project }) {
                   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6, flexWrap:'wrap' }}>
                     <span style={{ fontSize:14, fontWeight:700, color:'#EDE8DB' }}>{s.nom}</span>
                     {enAlert && <span style={{ fontSize:10, background:'rgba(199,91,78,0.15)', color:'#C75B4E', padding:'1px 8px', borderRadius:10, fontWeight:700 }}>⚠️ Seuil dépassé</span>}
-                    {hasSync && hasKey && <span style={{ fontSize:10, background:'rgba(91,199,138,0.1)', color:'#5BC78A', padding:'1px 8px', borderRadius:10 }}>⚡ Auto</span>}
+                    {hasSync && hasKey  && <span style={{ fontSize:10, background:'rgba(91,199,138,0.1)', color:'#5BC78A', padding:'1px 8px', borderRadius:10 }}>⚡ Connecté</span>}
                     {hasSync && !hasKey && <span style={{ fontSize:10, background:'rgba(212,168,83,0.1)', color:'#D4A853', padding:'1px 8px', borderRadius:10 }}>🔑 Clé manquante</span>}
+                    {isInfoOnly && hasKey && <span style={{ fontSize:10, background:'rgba(91,163,199,0.1)', color:'#5BA3C7', padding:'1px 8px', borderRadius:10 }}>📊 Stats</span>}
                     {s.url && (
                       <a href={s.url} target="_blank" rel="noreferrer"
                         style={{ fontSize:11, color:project.color, textDecoration:'none', background:`${project.color}15`, padding:'1px 8px', borderRadius:10 }}>
@@ -339,7 +499,9 @@ export default function PageMonitoring({ project }) {
 
                 <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
                   <div style={{ textAlign:'right' }}>
-                    <p style={{ fontSize:10, color:'rgba(237,232,219,0.3)', margin:'0 0 4px' }}>Coût/mois</p>
+                    <p style={{ fontSize:10, color:'rgba(237,232,219,0.3)', margin:'0 0 4px' }}>
+                      {isInfoOnly ? 'Coût manuel (€)' : 'Coût/mois'}
+                    </p>
                     <input
                       type="number"
                       value={s.cout_actuel}
@@ -349,10 +511,9 @@ export default function PageMonitoring({ project }) {
                     <p style={{ fontSize:10, color:'rgba(237,232,219,0.3)', margin:'2px 0 0', textAlign:'center' }}>€</p>
                   </div>
                   <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                    {/* Bouton sync si disponible */}
                     {hasSync && (
                       <button onClick={() => syncService(s)} disabled={isSyncing}
-                        title={hasKey ? 'Synchroniser avec l\'API' : 'Ajoute une clé API dans ✏️ Modifier'}
+                        title={hasKey ? 'Synchroniser' : 'Ajoute une clé API dans ✏️ Modifier'}
                         style={{ padding:'5px 8px', borderRadius:7, border:`1px solid ${hasKey ? 'rgba(91,199,138,0.3)' : 'rgba(255,255,255,0.1)'}`, background: hasKey ? 'rgba(91,199,138,0.08)' : 'transparent', color: hasKey ? '#5BC78A' : 'rgba(237,232,219,0.3)', fontSize:11, cursor: isSyncing ? 'not-allowed' : 'pointer' }}>
                         {isSyncing ? '⏳' : '🔄'}
                       </button>
