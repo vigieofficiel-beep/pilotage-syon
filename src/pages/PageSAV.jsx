@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
-const STORAGE_KEY = 'pilotage_sav'
+const STORAGE_KEY     = 'pilotage_sav'
+const CONFIG_KEY      = (pid) => `pilotage_config_${pid}`
 
 const STATUTS = [
   { id:'ouvert',    label:'Ouvert',    color:'#D4A853' },
@@ -15,7 +16,64 @@ function loadData() {
   catch { return { messages: [] } }
 }
 
+function loadConfig(projectId) {
+  try {
+    const s = localStorage.getItem(CONFIG_KEY(projectId))
+    return s ? JSON.parse(s) : {}
+  } catch { return {} }
+}
+
 const iS = { width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'#EDE8DB', fontSize:12, outline:'none', fontFamily:"'Nunito Sans',sans-serif", boxSizing:'border-box' }
+
+const OPENAI_HEADERS = (key) => ({
+  'Content-Type':'application/json',
+  'Authorization':`Bearer ${key}`
+})
+
+const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
+
+// ── GARDE-FOU : valide et réécrit si nécessaire ────────────────────
+// Retourne { reponse, corrigee: bool }
+async function validerTonReponse({ reponse, message, client, ton, audience, motsCles, motsExclus, apiKey }) {
+  const tonDesc   = ton       || 'professionnel et chaleureux'
+  const audDesc   = audience  || 'clients professionnels'
+  const inclure   = motsCles  && motsCles.length ? `Mots à privilégier : ${motsCles.join(', ')}.` : ''
+  const exclure   = motsExclus && motsExclus.length ? `Mots à éviter absolument : ${motsExclus.join(', ')}.` : ''
+
+  const prompt = `Tu es un expert en communication client. Vérifie si cette réponse SAV respecte le ton et les contraintes, puis réécris-la si nécessaire.
+
+TON ATTENDU : ${tonDesc}
+AUDIENCE : ${audDesc}
+${inclure}
+${exclure}
+
+MESSAGE CLIENT (${client}) : "${message}"
+
+RÉPONSE À VALIDER :
+"${reponse}"
+
+Réponds UNIQUEMENT en JSON :
+{"valide": true|false, "raison": "...", "reponse_finale": "..."} 
+- Si valide=true : reponse_finale = la réponse originale sans modification
+- Si valide=false : reponse_finale = la réponse réécrite qui respecte le ton`
+
+  const res = await fetch(OPENAI_URL, {
+    method:'POST',
+    headers: OPENAI_HEADERS(apiKey),
+    body: JSON.stringify({
+      model:'gpt-4o', max_tokens:400, response_format:{type:'json_object'},
+      messages:[{role:'user', content:prompt}]
+    })
+  })
+  if (!res.ok) throw new Error('Erreur OpenAI garde-fou')
+  const data = await res.json()
+  const result = JSON.parse(data.choices[0].message.content)
+  return {
+    reponse:  result.reponse_finale || reponse,
+    corrigee: !result.valide,
+    raison:   result.raison || ''
+  }
+}
 
 export default function PageSAV({ project }) {
   const [data,      setData]      = useState(loadData)
@@ -24,6 +82,9 @@ export default function PageSAV({ project }) {
   const [selected,  setSelected]  = useState(null)
   const [analyzing, setAnalyzing] = useState(null)
   const [response,  setResponse]  = useState('')
+  const [reponseCorrigee, setReponseCorrigee] = useState(false)
+  const [raisonCorrection, setRaisonCorrection] = useState('')
+  const [gardeFouActif, setGardeFouActif] = useState(true)
   const [form, setForm] = useState({ client:'', source:'WhatsApp', message:'', statut:'ouvert', date: new Date().toISOString().split('T')[0] })
 
   const save = (d) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); setData(d) }
@@ -34,11 +95,13 @@ export default function PageSAV({ project }) {
   const nbNegatif = messages.filter(m => m.sentiment === 'negatif').length
   const nbOuvert  = messages.filter(m => m.statut === 'ouvert').length
 
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY
+
   const analyserSentiment = async (msg) => {
     setAnalyzing(msg.id)
     try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`},
+      const res = await fetch(OPENAI_URL, {
+        method:'POST', headers: OPENAI_HEADERS(apiKey),
         body: JSON.stringify({
           model:'gpt-4o', max_tokens:200, response_format:{type:'json_object'},
           messages:[{role:'user',content:`Analyse ce message client et détecte le sentiment.
@@ -54,11 +117,15 @@ JSON: {"sentiment":"positif|negatif|neutre","score":8,"resume":"...","suggestion
     setAnalyzing(null)
   }
 
+  // ── GÉNÉRATION + GARDE-FOU ─────────────────────────────────────
   const genererReponse = async (msg) => {
     setAnalyzing(`rep_${msg.id}`)
+    setReponseCorrigee(false)
+    setRaisonCorrection('')
     try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`},
+      // 1. Génération initiale
+      const res = await fetch(OPENAI_URL, {
+        method:'POST', headers: OPENAI_HEADERS(apiKey),
         body: JSON.stringify({
           model:'gpt-4o', max_tokens:300,
           messages:[{role:'user',content:`Tu es l'assistant SAV de ${project.label}.
@@ -70,10 +137,40 @@ UNIQUEMENT la réponse, sans explication.`}]
         })
       })
       const data2 = await res.json()
-      setResponse(data2.choices[0].message.content.trim())
+      const reponseInitiale = data2.choices[0].message.content.trim()
+
+      // 2. Garde-fou si activé
+      if (gardeFouActif) {
+        const config = loadConfig(project.id)
+        const { reponse, corrigee, raison } = await validerTonReponse({
+          reponse:    reponseInitiale,
+          message:    msg.message,
+          client:     msg.client,
+          ton:        config.ton,
+          audience:   config.audience,
+          motsCles:   config.mots_cles,
+          motsExclus: config.mots_exclus,
+          apiKey,
+        })
+        setResponse(reponse)
+        setReponseCorrigee(corrigee)
+        setRaisonCorrection(raison)
+      } else {
+        setResponse(reponseInitiale)
+      }
+
       setSelected(msg)
-    } catch(e) { console.error(e) }
+    } catch(e) {
+      console.error(e)
+      // Fallback : affiche quand même sans garde-fou
+      setResponse('Erreur lors de la génération. Réessaie.')
+      setSelected(msg)
+    }
     setAnalyzing(null)
+  }
+
+  const regenerer = () => {
+    if (selected) genererReponse(selected)
   }
 
   const ajouterMessage = () => {
@@ -131,17 +228,63 @@ UNIQUEMENT la réponse, sans explication.`}]
 
       {/* PANEL RÉPONSE */}
       {selected && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget){setSelected(null);setResponse('')}}}>
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget){setSelected(null);setResponse('');setReponseCorrigee(false)}}}>
           <div style={{background:'#1a1d24',border:'1px solid rgba(255,255,255,0.1)',borderRadius:16,width:'100%',maxWidth:520,padding:28}}>
-            <h3 style={{fontSize:15,fontWeight:700,color:'#EDE8DB',marginBottom:16}}>💬 Réponse suggérée — {selected.client}</h3>
+
+            {/* En-tête */}
+            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+              <h3 style={{fontSize:15,fontWeight:700,color:'#EDE8DB',margin:0}}>💬 Réponse — {selected.client}</h3>
+              {gardeFouActif && (
+                reponseCorrigee
+                  ? <span style={{fontSize:10,background:'rgba(212,168,83,0.12)',color:'#D4A853',padding:'2px 10px',borderRadius:10,fontWeight:700}}>✏️ Ton corrigé</span>
+                  : <span style={{fontSize:10,background:'rgba(91,199,138,0.1)',color:'#5BC78A',padding:'2px 10px',borderRadius:10,fontWeight:700}}>✅ Ton validé</span>
+              )}
+            </div>
+
+            {/* Raison de correction */}
+            {reponseCorrigee && raisonCorrection && (
+              <div style={{marginBottom:12,padding:'8px 12px',background:'rgba(212,168,83,0.06)',border:'1px solid rgba(212,168,83,0.2)',borderRadius:8}}>
+                <p style={{fontSize:11,color:'rgba(212,168,83,0.8)',margin:0,lineHeight:1.5}}>
+                  ✏️ <strong>Corrigé :</strong> {raisonCorrection}
+                </p>
+              </div>
+            )}
+
+            {/* Message original */}
             <div style={{background:'rgba(255,255,255,0.03)',borderRadius:10,padding:12,marginBottom:14,fontSize:12,color:'rgba(237,232,219,0.5)',lineHeight:1.6}}>
               <strong style={{color:'rgba(237,232,219,0.7)'}}>Message original :</strong><br/>{selected.message}
             </div>
+
+            {/* Réponse éditable */}
             {response && <>
-              <textarea value={response} onChange={e=>setResponse(e.target.value)} rows={6} style={{...iS,resize:'vertical',marginBottom:10,fontSize:13,lineHeight:1.6}}/>
+              <textarea
+                value={response}
+                onChange={e=>setResponse(e.target.value)}
+                rows={6}
+                style={{...iS,resize:'vertical',marginBottom:10,fontSize:13,lineHeight:1.6}}
+              />
+
+              {/* Toggle garde-fou */}
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+                <input type="checkbox" id="gf_toggle" checked={gardeFouActif} onChange={e=>setGardeFouActif(e.target.checked)} style={{cursor:'pointer'}}/>
+                <label htmlFor="gf_toggle" style={{fontSize:11,color:'rgba(237,232,219,0.4)',cursor:'pointer'}}>
+                  🛡️ Garde-fou actif (vérifie le ton avant affichage)
+                </label>
+              </div>
+
               <div style={{display:'flex',gap:8}}>
-                <button onClick={()=>navigator.clipboard.writeText(response)} style={{flex:1,padding:'9px',borderRadius:9,border:'none',background:project.color,color:'#0D1B2A',fontSize:12,fontWeight:800,cursor:'pointer'}}>📋 Copier la réponse</button>
-                <button onClick={()=>{setSelected(null);setResponse('')}} style={{padding:'9px 16px',borderRadius:9,border:'1px solid rgba(255,255,255,0.1)',background:'transparent',color:'rgba(237,232,219,0.5)',fontSize:12,cursor:'pointer'}}>Fermer</button>
+                <button onClick={()=>navigator.clipboard.writeText(response)}
+                  style={{flex:1,padding:'9px',borderRadius:9,border:'none',background:project.color,color:'#0D1B2A',fontSize:12,fontWeight:800,cursor:'pointer'}}>
+                  📋 Copier
+                </button>
+                <button onClick={regenerer} disabled={!!analyzing}
+                  style={{padding:'9px 14px',borderRadius:9,border:`1px solid ${project.color}40`,background:'transparent',color:project.color,fontSize:12,fontWeight:700,cursor:analyzing?'not-allowed':'pointer'}}>
+                  {analyzing?'⏳':'🔄 Régénérer'}
+                </button>
+                <button onClick={()=>{setSelected(null);setResponse('');setReponseCorrigee(false)}}
+                  style={{padding:'9px 14px',borderRadius:9,border:'1px solid rgba(255,255,255,0.1)',background:'transparent',color:'rgba(237,232,219,0.5)',fontSize:12,cursor:'pointer'}}>
+                  Fermer
+                </button>
               </div>
             </>}
           </div>
@@ -151,10 +294,10 @@ UNIQUEMENT la réponse, sans explication.`}]
       {/* STATS */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,flexShrink:0}}>
         {[
-          {label:'Total',      value:messages.length,  color:'#EDE8DB'  },
-          {label:'⚠️ Ouverts', value:nbOuvert,         color:'#D4A853'  },
-          {label:'😊 Positifs',value:nbPositif,         color:'#5BC78A'  },
-          {label:'😤 Négatifs',value:nbNegatif,         color:'#C75B4E'  },
+          {label:'Total',      value:messages.length, color:'#EDE8DB'},
+          {label:'⚠️ Ouverts', value:nbOuvert,        color:'#D4A853'},
+          {label:'😊 Positifs',value:nbPositif,        color:'#5BC78A'},
+          {label:'😤 Négatifs',value:nbNegatif,        color:'#C75B4E'},
         ].map(k=>(
           <div key={k.label} style={{padding:'12px 16px',borderRadius:12,background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)'}}>
             <p style={{fontSize:10,color:'rgba(237,232,219,0.4)',margin:'0 0 4px',textTransform:'uppercase',letterSpacing:'0.06em'}}>{k.label}</p>
@@ -210,7 +353,7 @@ UNIQUEMENT la réponse, sans explication.`}]
                   </button>
                   <button onClick={()=>genererReponse(m)} disabled={!!analyzing}
                     style={{padding:'5px 10px',borderRadius:7,border:'1px solid rgba(255,255,255,0.1)',background:'transparent',color:'rgba(237,232,219,0.5)',fontSize:11,cursor:analyzing?'not-allowed':'pointer'}}>
-                    {analyzing===`rep_${m.id}`?'⏳...':'💬 Répondre'}
+                    {analyzing===`rep_${m.id}`?'⏳ Garde-fou...':'💬 Répondre'}
                   </button>
                   <button onClick={()=>navigator.clipboard.writeText(m.message)}
                     style={{padding:'5px 8px',borderRadius:7,border:'1px solid rgba(255,255,255,0.08)',background:'transparent',color:'rgba(237,232,219,0.3)',fontSize:11,cursor:'pointer'}}>📋</button>
