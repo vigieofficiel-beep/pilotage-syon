@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 
 const STORAGE_KEY = 'pilotage_prospects'
 
@@ -17,6 +17,56 @@ function loadData() {
   catch { return { prospects: [] } }
 }
 
+// ── IMPORT CSV ────────────────────────────────────────────────────
+// Colonnes supportées (insensible à la casse et aux espaces) :
+// nom, email, entreprise, source, budget, notes
+// La colonne "nom" est obligatoire — les autres sont optionnelles.
+
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim())
+  if (lines.length < 2) return []
+
+  const headers = lines[0].split(/[;,]/).map(h => h.trim().toLowerCase().replace(/['"]/g, ''))
+
+  const rows = []
+  for (let i = 1; i < lines.length; i++) {
+    const vals = lines[i].split(/[;,]/).map(v => v.trim().replace(/^["']|["']$/g, ''))
+    const row = {}
+    headers.forEach((h, idx) => { row[h] = vals[idx] || '' })
+    if (row.nom && row.nom.trim()) rows.push(row)
+  }
+  return rows
+}
+
+function csvToProspects(rows, existingNoms) {
+  const today = new Date().toISOString().split('T')[0]
+  const nouveaux = []
+
+  for (const row of rows) {
+    const nom = row.nom?.trim()
+    if (!nom) continue
+    // Ignore les doublons (comparaison insensible à la casse)
+    if (existingNoms.has(nom.toLowerCase())) continue
+
+    // Normalise la source
+    const sourceRaw = row.source?.trim() || ''
+    const source = SOURCES.find(s => s.toLowerCase() === sourceRaw.toLowerCase()) || 'Autre'
+
+    nouveaux.push({
+      id:         Date.now() + Math.random(),
+      nom,
+      email:      row.email?.trim()      || '',
+      entreprise: row.entreprise?.trim() || '',
+      source,
+      budget:     row.budget?.trim()     || '',
+      notes:      row.notes?.trim()      || '',
+      colonne:    'prospect',
+      date:       today,
+    })
+  }
+  return nouveaux
+}
+
 const iS = { width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'#EDE8DB', fontSize:12, outline:'none', fontFamily:"'Nunito Sans',sans-serif", boxSizing:'border-box' }
 
 export default function PageProspects({ project }) {
@@ -24,12 +74,50 @@ export default function PageProspects({ project }) {
   const [showForm, setShowForm] = useState(false)
   const [selected, setSelected] = useState(null)
   const [scoring,  setScoring]  = useState(null)
-  const [view,     setView]     = useState('kanban') // 'kanban' | 'liste'
+  const [view,     setView]     = useState('kanban')
+  const [msg,      setMsg]      = useState(null)
   const [form, setForm] = useState({ nom:'', email:'', entreprise:'', source:'LinkedIn', colonne:'prospect', budget:'', notes:'', date: new Date().toISOString().split('T')[0] })
+
+  const csvRef = useRef(null)
 
   const save = (d) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); setData(d) }
   const prospects = data.prospects || []
 
+  const showMsg = (text, duration = 3500) => {
+    setMsg(text)
+    setTimeout(() => setMsg(null), duration)
+  }
+
+  // ── IMPORT CSV ─────────────────────────────────────────────────
+  const handleCSV = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target.result
+      const rows = parseCSV(text)
+      if (rows.length === 0) {
+        showMsg('❌ Fichier vide ou format invalide. Colonnes attendues : nom, email, entreprise, source, budget, notes')
+        return
+      }
+      const existingNoms = new Set(prospects.map(p => p.nom.toLowerCase()))
+      const nouveaux = csvToProspects(rows, existingNoms)
+      const doublons = rows.length - nouveaux.length
+
+      if (nouveaux.length === 0) {
+        showMsg(`⚠️ ${rows.length} ligne(s) ignorée(s) — tous les noms existent déjà.`)
+        return
+      }
+
+      save({ ...data, prospects: [...nouveaux, ...prospects] })
+      showMsg(`✅ ${nouveaux.length} prospect(s) importé(s)${doublons > 0 ? ` · ${doublons} doublon(s) ignoré(s)` : ''}`)
+    }
+    reader.readAsText(file, 'UTF-8')
+    // Reset input pour permettre re-import du même fichier
+    e.target.value = ''
+  }
+
+  // ── SCORING IA ─────────────────────────────────────────────────
   const scorerProspect = async (p) => {
     setScoring(p.id)
     try {
@@ -68,6 +156,9 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',gap:16}}>
 
+      {/* INPUT CSV CACHÉ */}
+      <input ref={csvRef} type="file" accept=".csv" onChange={handleCSV} style={{display:'none'}}/>
+
       {/* FORMULAIRE */}
       {showForm && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget)setShowForm(false)}}>
@@ -94,6 +185,15 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
               </div>
             </div>
             <div style={{marginBottom:14}}><label style={{fontSize:11,color:'rgba(237,232,219,0.4)',display:'block',marginBottom:4}}>Notes</label><textarea value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} rows={3} placeholder="Informations utiles..." style={{...iS,resize:'vertical'}}/></div>
+
+            {/* Info format CSV */}
+            <div style={{marginBottom:14,padding:'10px 12px',background:'rgba(91,163,199,0.06)',border:'1px solid rgba(91,163,199,0.15)',borderRadius:8}}>
+              <p style={{fontSize:10,color:'rgba(91,163,199,0.8)',margin:0,lineHeight:1.6}}>
+                💡 Tu peux aussi importer plusieurs prospects d'un coup via <strong>📥 Import CSV</strong> dans l'en-tête.<br/>
+                Colonnes supportées : <code style={{background:'rgba(255,255,255,0.06)',padding:'1px 4px',borderRadius:4}}>nom, email, entreprise, source, budget, notes</code>
+              </p>
+            </div>
+
             <div style={{display:'flex',gap:8}}>
               <button onClick={ajouter} style={{flex:1,padding:'10px',borderRadius:10,border:'none',background:project.color,color:'#0D1B2A',fontSize:13,fontWeight:800,cursor:'pointer'}}>✅ Ajouter</button>
               <button onClick={()=>setShowForm(false)} style={{padding:'10px 16px',borderRadius:10,border:'1px solid rgba(255,255,255,0.1)',background:'transparent',color:'rgba(237,232,219,0.5)',fontSize:12,cursor:'pointer'}}>Annuler</button>
@@ -157,6 +257,10 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
           <p style={{fontSize:22,fontWeight:800,color:'#D4A853',margin:0}}>{totalBudget.toFixed(0)}€</p>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <button onClick={()=>csvRef.current?.click()}
+            style={{padding:'10px 14px',borderRadius:10,border:'1px solid rgba(91,163,199,0.3)',background:'rgba(91,163,199,0.06)',color:'#5BA3C7',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+            📥 Import CSV
+          </button>
           <button onClick={()=>setView(v=>v==='kanban'?'liste':'kanban')}
             style={{padding:'10px 14px',borderRadius:10,border:'1px solid rgba(255,255,255,0.1)',background:'transparent',color:'rgba(237,232,219,0.5)',fontSize:12,cursor:'pointer'}}>
             {view==='kanban'?'📋 Liste':'🗂️ Kanban'}
@@ -164,6 +268,13 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
           <button onClick={()=>setShowForm(true)} style={{padding:'10px 16px',borderRadius:10,border:'none',background:project.color,color:'#0D1B2A',fontSize:12,fontWeight:800,cursor:'pointer'}}>➕ Ajouter</button>
         </div>
       </div>
+
+      {/* MESSAGE */}
+      {msg && (
+        <div style={{padding:'10px 14px',borderRadius:10,background:msg.startsWith('❌')?'rgba(199,91,78,0.1)':msg.startsWith('⚠️')?'rgba(212,168,83,0.1)':'rgba(91,199,138,0.1)',border:`1px solid ${msg.startsWith('❌')?'rgba(199,91,78,0.2)':msg.startsWith('⚠️')?'rgba(212,168,83,0.2)':'rgba(91,199,138,0.2)'}`,fontSize:13,color:msg.startsWith('❌')?'#C75B4E':msg.startsWith('⚠️')?'#D4A853':'#5BC78A',flexShrink:0}}>
+          {msg}
+        </div>
+      )}
 
       {/* KANBAN */}
       {view==='kanban' && (
