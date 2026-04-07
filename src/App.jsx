@@ -70,6 +70,35 @@ function getConfig(projectId) {
   catch { return {} }
 }
 
+// ── HISTORIQUE INTELLIGENT ────────────────────────────────────────
+// Récupère les N derniers posts du projet + plateforme
+// Sources : pilotage_templates (sauvegardés) + pilotage_calendrier (publiés)
+function loadHistorique(projectId, platform, limit = 5) {
+  const posts = []
+
+  // 1. Templates sauvegardés pour ce projet + plateforme
+  try {
+    const templates = JSON.parse(localStorage.getItem('pilotage_templates') || '[]')
+    templates
+      .filter(t => t.projectId === projectId && t.platform === platform)
+      .slice(0, limit)
+      .forEach(t => posts.push(t.contenu))
+  } catch {}
+
+  // 2. Posts publiés dans le calendrier pour ce projet + plateforme
+  try {
+    const cal = JSON.parse(localStorage.getItem('pilotage_calendrier') || '[]')
+    cal
+      .filter(e => e.projectId === projectId && e.platform === platform && e.statut === 'publie')
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, limit)
+      .forEach(e => posts.push(e.contenu))
+  } catch {}
+
+  // Déduplique et limite
+  return [...new Set(posts)].slice(0, limit)
+}
+
 function buildPrompt(project, platform, idea) {
   const cfg = getConfig(project.id)
   const parts = [
@@ -82,6 +111,7 @@ function buildPrompt(project, platform, idea) {
     cfg.mots_exclure    && `Mots à éviter : ${cfg.mots_exclure}`,
     cfg.bio_publique    && `Bio publique : ${cfg.bio_publique}`,
   ].filter(Boolean).join('\n')
+
   const defaultRules = {
     linkedin:`Ton professionnel, flèches →, paragraphes courts, termine par "— ${cfg.nom||'[Votre nom]'}"`,
     facebook:'Ton accessible, quelques emojis, storytelling humain',
@@ -92,13 +122,20 @@ function buildPrompt(project, platform, idea) {
     tiktok:'Script vidéo courte, accroche 3 secondes, tendance actuelle',
     threads:'Ton décontracté, réflexion du moment, conversationnel',
   }
+
+  // Historique : posts précédents pour éviter répétitions et apprendre le style
+  const historique = loadHistorique(project.id, platform)
+  const historiqueSection = historique.length > 0
+    ? `\nHISTORIQUE DE TES DERNIERS POSTS ${platform.toUpperCase()} (à analyser pour apprendre ton style ET éviter toute répétition de formulation, accroche, ou structure) :\n${historique.map((h, i) => `[Post ${i + 1}] ${h.slice(0, 300)}${h.length > 300 ? '...' : ''}`).join('\n---\n')}\nIMPORTANT : Ne réutilise JAMAIS la même accroche, structure ou formulation que ces posts précédents.`
+    : ''
+
   return `Tu es un expert en création de contenu pour réseaux sociaux.
 Projet : ${project.label} ${project.emoji}
 ${parts}
 Plateforme : ${platform.toUpperCase()}
-${cfg[`prompt_${platform}`] || defaultRules[platform] || 'Ton adapté à la plateforme'}
+${cfg[`prompt_${platform}`] || defaultRules[platform] || 'Ton adapté à la plateforme'}${historiqueSection}
 Idée : "${idea}"
-Génère un post ${platform} percutant et authentique.
+Génère un post ${platform} percutant et authentique, dans le style appris ci-dessus.
 Réponds UNIQUEMENT avec le post final, sans explication.`
 }
 
