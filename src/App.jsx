@@ -6,6 +6,7 @@ import PageFinances from './pages/PageFinances'
 import PageSAV from './pages/PageSAV'
 import PageProspects from './pages/PageProspects'
 import PageCalendrier from './pages/PageCalendrier'
+import PageTemplates, { saveTemplate } from './pages/PageTemplates'
 import LicenceModal from './pages/LicenceModal'
 
 const PROJECTS_DEFAULT = [
@@ -45,6 +46,7 @@ const BG_THEMES = [
 
 const TABS = [
   { id:'contenu',          label:'Contenu',          emoji:'✍️' },
+  { id:'templates',        label:'Templates',         emoji:'📚' },
   { id:'calendrier',       label:'Calendrier',        emoji:'📅' },
   { id:'monitoring',       label:'Alertes & Coûts',  emoji:'📊' },
   { id:'vault',            label:'Coffre-fort',       emoji:'🔐' },
@@ -54,7 +56,7 @@ const TABS = [
   { id:'personnalisation', label:'Personnalisation',  emoji:'⚙️' },
 ]
 
-const ACTIVE_TABS = ['contenu','personnalisation','vault','monitoring','finances','sav','prospects','calendrier']
+const ACTIVE_TABS = ['contenu','templates','personnalisation','vault','monitoring','finances','sav','prospects','calendrier']
 const STORAGE_KEY_PROJECTS = 'pilotage_projects'
 const STORAGE_KEY_THEME    = 'pilotage_theme'
 
@@ -215,13 +217,14 @@ function RepurposePanel({ project, onClose, onAddPosts }) {
   )
 }
 
-function TabContenu({ project }) {
+function TabContenu({ project, onGoToTemplates }) {
   const platforms=project.reseaux||['linkedin','facebook','discord','youtube']
   const plt_icon=ALL_PLATFORMS.reduce((acc,p)=>({...acc,[p.id]:p.icon}),{})
   const [prompt,setPrompt]=useState(''),[loading,setLoading]=useState(false),[genAll,setGenAll]=useState(false)
   const [posts,setPosts]=useState([]),[platform,setPlatform]=useState(platforms[0]||'linkedin')
   const [analysing,setAnalysing]=useState(null),[repurpose,setRepurpose]=useState(false)
   const [publishing,setPublishing]=useState(null)
+  const [savedId,setSavedId]=useState(null) // id du post récemment sauvegardé comme template
 
   useEffect(()=>{if(!platforms.includes(platform))setPlatform(platforms[0])},[project.id])
 
@@ -232,6 +235,18 @@ function TabContenu({ project }) {
   const rewrite=(id,c)=>setPosts(prev=>prev.map(p=>p.id===id?{...p,contenu:c}:p))
   const addPosts=(np)=>setPosts(prev=>[...np,...prev])
   const publier=async(p)=>{setPublishing(p.id);try{await publierPost(p.platform,p.contenu);setPosts(prev=>prev.map(x=>x.id===p.id?{...x,statut:'publie'}:x))}catch(e){console.error(e)}setPublishing(null)}
+
+  const sauvegarderTemplate = (p) => {
+    saveTemplate({
+      platform:     p.platform,
+      contenu:      p.contenu,
+      label:        `${p.platform} — ${p.date}`,
+      projectId:    project.id,
+      projectLabel: project.label,
+    })
+    setSavedId(p.id)
+    setTimeout(() => setSavedId(null), 2500)
+  }
 
   return(
     <div style={{display:'flex',gap:24,height:'100%'}}>
@@ -250,17 +265,29 @@ function TabContenu({ project }) {
         <div style={{background:'rgba(255,255,255,0.02)',border:'2px dashed rgba(255,255,255,0.08)',borderRadius:14,padding:20,textAlign:'center',cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(255,255,255,0.2)'} onMouseLeave={e=>e.currentTarget.style.borderColor='rgba(255,255,255,0.08)'}><div style={{fontSize:28,marginBottom:6}}>📎</div><p style={{fontSize:13,color:'rgba(237,232,219,0.4)',margin:0}}>Glisse tes fichiers ici</p><p style={{fontSize:11,color:'rgba(237,232,219,0.2)',margin:'4px 0 0'}}>Images · Vidéos · PDF · Documents</p></div>
       </div>
       <div style={{width:340,display:'flex',flexDirection:'column',gap:10,overflowY:'auto'}}>
-        <h3 style={{fontSize:11,fontWeight:700,color:'rgba(237,232,219,0.4)',textTransform:'uppercase',letterSpacing:'0.08em',flexShrink:0}}>Posts générés {posts.length>0&&`(${posts.length})`}</h3>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+          <h3 style={{fontSize:11,fontWeight:700,color:'rgba(237,232,219,0.4)',textTransform:'uppercase',letterSpacing:'0.08em',margin:0}}>Posts générés {posts.length>0&&`(${posts.length})`}</h3>
+          {posts.length>0&&(
+            <button onClick={onGoToTemplates} style={{fontSize:10,color:project.color,background:`${project.color}15`,border:`1px solid ${project.color}30`,padding:'2px 8px',borderRadius:8,cursor:'pointer',fontWeight:700}}>
+              📚 Voir mes templates
+            </button>
+          )}
+        </div>
         {posts.length===0?<div style={{background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.06)',borderRadius:12,padding:24,textAlign:'center',color:'rgba(237,232,219,0.3)',fontSize:13}}>Aucun post encore.<br/>Génère ton premier post ✨</div>:posts.map(p=>(
           <div key={p.id} style={{background:'rgba(255,255,255,0.03)',border:`1px solid ${p.statut==='publie'?'rgba(91,199,138,0.3)':'rgba(255,255,255,0.07)'}`,borderRadius:12,padding:14,flexShrink:0}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
               <span style={{fontSize:10,fontWeight:700,color:project.color,textTransform:'uppercase'}}>{plt_icon[p.platform]||'📱'} {p.platform}</span>
-              <div style={{display:'flex',alignItems:'center',gap:6}}>{p.statut==='publie'&&<span style={{fontSize:9,color:'#5BC78A',fontWeight:700}}>✅ Publié</span>}<span style={{fontSize:10,color:'rgba(237,232,219,0.3)'}}>{p.date}</span></div>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                {savedId===p.id&&<span style={{fontSize:9,color:'#D4A853',fontWeight:700}}>💾 Sauvegardé !</span>}
+                {p.statut==='publie'&&<span style={{fontSize:9,color:'#5BC78A',fontWeight:700}}>✅ Publié</span>}
+                <span style={{fontSize:10,color:'rgba(237,232,219,0.3)'}}>{p.date}</span>
+              </div>
             </div>
             <p style={{fontSize:12,color:'rgba(237,232,219,0.75)',lineHeight:1.6,margin:'0 0 10px',whiteSpace:'pre-wrap',maxHeight:140,overflow:'hidden'}}>{p.contenu}</p>
             <div style={{display:'flex',gap:5}}>
               <button onClick={()=>copier(p.contenu)} style={{flex:1,padding:'6px',borderRadius:7,border:'none',background:project.color,color:'#0D1B2A',fontSize:11,fontWeight:700,cursor:'pointer'}}>📋 Copier</button>
               <button onClick={()=>setAnalysing(p)} style={{padding:'6px 8px',borderRadius:7,border:`1px solid ${project.color}40`,background:`${project.color}10`,color:project.color,fontSize:11,cursor:'pointer'}} title="Score">🎯</button>
+              <button onClick={()=>sauvegarderTemplate(p)} title="Sauvegarder comme template" style={{padding:'6px 8px',borderRadius:7,border:'1px solid rgba(212,168,83,0.3)',background:'rgba(212,168,83,0.08)',color:'#D4A853',fontSize:11,cursor:'pointer'}}>💾</button>
               <button onClick={()=>publier(p)} disabled={publishing===p.id} style={{padding:'6px 10px',borderRadius:7,border:'1px solid rgba(91,199,138,0.4)',background:'rgba(91,199,138,0.1)',color:'#5BC78A',fontSize:11,fontWeight:700,cursor:publishing===p.id?'not-allowed':'pointer'}}>{publishing===p.id?'⏳':'🚀 Publier'}</button>
               <button onClick={()=>supprimer(p.id)} style={{padding:'6px 8px',borderRadius:7,border:'1px solid rgba(199,91,78,0.2)',background:'transparent',color:'#C75B4E',fontSize:11,cursor:'pointer'}}>🗑️</button>
             </div>
@@ -273,7 +300,7 @@ function TabContenu({ project }) {
 
 // ── APP ───────────────────────────────────────────────────────────
 export default function App() {
-  const [licenceOk,     setLicenceOk]     = useState(null) // null = en cours de vérif
+  const [licenceOk,     setLicenceOk]     = useState(null)
   const [projects,      setProjects]      = useState(loadProjects)
   const [activeProject, setActiveProject] = useState(loadProjects()[0]?.id||'vigie')
   const [activeTab,     setActiveTab]     = useState('contenu')
@@ -284,14 +311,12 @@ export default function App() {
     catch { return BG_THEMES[0] }
   })
 
-  // Vérification licence au démarrage
   useEffect(() => {
     const check = async () => {
       if (window.electronAPI?.checkLicence) {
         const ok = await window.electronAPI.checkLicence()
         setLicenceOk(ok)
       } else {
-        // Mode dev web — pas de vérif
         setLicenceOk(true)
       }
     }
@@ -310,7 +335,6 @@ export default function App() {
   }
   const supprimerProjet=(id)=>{if(projects.length<=1)return;if(!confirm('Supprimer ?'))return;const updated=projects.filter(p=>p.id!==id);saveProjects(updated);if(activeProject===id)setActiveProject(updated[0].id)}
 
-  // Écran de chargement pendant vérif licence
   if (licenceOk === null) return (
     <div style={{background:'#0D1B2A',height:'100vh',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Nunito Sans',sans-serif"}}>
       <div style={{textAlign:'center'}}>
@@ -320,7 +344,6 @@ export default function App() {
     </div>
   )
 
-  // Écran d'activation si pas de licence
   if (!licenceOk) return <LicenceModal onActivated={() => setLicenceOk(true)} />
 
   return (
@@ -333,7 +356,7 @@ export default function App() {
       <div style={{height:52,background:'rgba(0,0,0,0.35)',borderBottom:'1px solid rgba(255,255,255,0.06)',display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 20px',flexShrink:0,position:'relative',zIndex:1}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <div style={{width:28,height:28,borderRadius:8,background:`linear-gradient(135deg,${project.color},${theme.bg})`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>{project.emoji}</div>
-          <span style={{fontFamily:"'Georgia',serif",fontSize:16,fontWeight:700,color:'#EDE8DB',letterSpacing:'0.02em'}}>Pilotage</span>
+          <span style={{fontFamily:"'Georgia',serif",fontSize:16,fontWeight:700,color:'#EDE8DB',letterSpacing:'0.02em'}}>Pilot</span>
           <span style={{fontSize:11,color:'rgba(237,232,219,0.3)',background:'rgba(255,255,255,0.05)',padding:'2px 8px',borderRadius:10}}>Syon</span>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:12}}>
@@ -342,7 +365,7 @@ export default function App() {
           </button>
           <div style={{display:'flex',alignItems:'center',gap:6}}>
             <div style={{width:8,height:8,borderRadius:'50%',background:'#5BC78A'}}/>
-            <span style={{fontSize:11,color:'rgba(237,232,219,0.3)'}}>v0.9.0</span>
+            <span style={{fontSize:11,color:'rgba(237,232,219,0.3)'}}>v0.9.1</span>
           </div>
         </div>
       </div>
@@ -386,7 +409,8 @@ export default function App() {
             <span style={{fontSize:11,background:`${project.color}15`,border:`1px solid ${project.color}30`,padding:'2px 10px',borderRadius:20,color:project.color}}>{project.emoji} {project.label}</span>
           </div>
           <div style={{flex:1,padding:24,overflowY:'auto'}}>
-            {activeTab==='contenu'          && <TabContenu project={project}/>}
+            {activeTab==='contenu'          && <TabContenu project={project} onGoToTemplates={()=>setActiveTab('templates')}/>}
+            {activeTab==='templates'        && <PageTemplates project={project}/>}
             {activeTab==='calendrier'       && <PageCalendrier project={project} projects={projects}/>}
             {activeTab==='personnalisation' && <PagePersonnalisation project={project}/>}
             {activeTab==='vault'            && <PageVault project={project} projects={projects}/>}
