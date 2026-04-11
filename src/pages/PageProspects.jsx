@@ -10,24 +10,54 @@ const COLONNES = [
   { id:'perdu',     label:'Perdu',     color:'#C75B4E', emoji:'❌' },
 ]
 
-const SOURCES = ['LinkedIn','Facebook','Bouche à oreille','Site web','Discord','Email','Autre']
+const SOURCES = ['LinkedIn','Facebook','Bouche à oreille','Site web','Discord','Email','SIRENE','Autre']
+
+// ── SECTEURS (codes NAF simplifiés) ──────────────────────────────
+const SECTEURS = [
+  { label:'Plombier',          naf:'4322A' },
+  { label:'Électricien',       naf:'4321A' },
+  { label:'Menuisier',         naf:'4332A' },
+  { label:'Maçon',             naf:'4120A' },
+  { label:'Peintre',           naf:'4334Z' },
+  { label:'Coiffeur',          naf:'9602A' },
+  { label:'Boulanger',         naf:'1071A' },
+  { label:'Restaurant',        naf:'5610A' },
+  { label:'Auto-école',        naf:'8553Z' },
+  { label:'Garage auto',       naf:'4520A' },
+  { label:'Agent immobilier',  naf:'6831Z' },
+  { label:'Comptable',         naf:'6920Z' },
+  { label:'Architecte',        naf:'7111Z' },
+  { label:'Infirmier',         naf:'8621Z' },
+  { label:'Kinésithérapeute',  naf:'8623Z' },
+  { label:'Taxi / VTC',        naf:'4932Z' },
+  { label:'Traiteur',          naf:'5621Z' },
+  { label:'Jardinier',         naf:'8130Z' },
+  { label:'Photographe',       naf:'7420Z' },
+  { label:'Consultant',        naf:'7022Z' },
+]
+
+const DEPARTEMENTS = [
+  '01','02','03','04','05','06','07','08','09','10',
+  '11','12','13','14','15','16','17','18','19','21',
+  '22','23','24','25','26','27','28','29','30','31',
+  '32','33','34','35','36','37','38','39','40','41',
+  '42','43','44','45','46','47','48','49','50','51',
+  '52','53','54','55','56','57','58','59','60','61',
+  '62','63','64','65','66','67','68','69','70','71',
+  '72','73','74','75','76','77','78','79','80','81',
+  '82','83','84','85','86','87','88','89','90','91',
+  '92','93','94','95','971','972','973','974',
+]
 
 function loadData() {
   try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : { prospects: [] } }
   catch { return { prospects: [] } }
 }
 
-// ── IMPORT CSV ────────────────────────────────────────────────────
-// Colonnes supportées (insensible à la casse et aux espaces) :
-// nom, email, entreprise, source, budget, notes
-// La colonne "nom" est obligatoire — les autres sont optionnelles.
-
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim())
   if (lines.length < 2) return []
-
   const headers = lines[0].split(/[;,]/).map(h => h.trim().toLowerCase().replace(/['"]/g, ''))
-
   const rows = []
   for (let i = 1; i < lines.length; i++) {
     const vals = lines[i].split(/[;,]/).map(v => v.trim().replace(/^["']|["']$/g, ''))
@@ -41,27 +71,19 @@ function parseCSV(text) {
 function csvToProspects(rows, existingNoms) {
   const today = new Date().toISOString().split('T')[0]
   const nouveaux = []
-
   for (const row of rows) {
     const nom = row.nom?.trim()
     if (!nom) continue
-    // Ignore les doublons (comparaison insensible à la casse)
     if (existingNoms.has(nom.toLowerCase())) continue
-
-    // Normalise la source
     const sourceRaw = row.source?.trim() || ''
     const source = SOURCES.find(s => s.toLowerCase() === sourceRaw.toLowerCase()) || 'Autre'
-
     nouveaux.push({
-      id:         Date.now() + Math.random(),
-      nom,
-      email:      row.email?.trim()      || '',
+      id: Date.now() + Math.random(),
+      nom, email: row.email?.trim() || '',
       entreprise: row.entreprise?.trim() || '',
-      source,
-      budget:     row.budget?.trim()     || '',
-      notes:      row.notes?.trim()      || '',
-      colonne:    'prospect',
-      date:       today,
+      source, budget: row.budget?.trim() || '',
+      notes: row.notes?.trim() || '',
+      colonne: 'prospect', date: today,
     })
   }
   return nouveaux
@@ -70,23 +92,29 @@ function csvToProspects(rows, existingNoms) {
 const iS = { width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'#EDE8DB', fontSize:12, outline:'none', fontFamily:"'Nunito Sans',sans-serif", boxSizing:'border-box' }
 
 export default function PageProspects({ project }) {
-  const [data,     setData]     = useState(loadData)
-  const [showForm, setShowForm] = useState(false)
-  const [selected, setSelected] = useState(null)
-  const [scoring,  setScoring]  = useState(null)
-  const [view,     setView]     = useState('kanban')
-  const [msg,      setMsg]      = useState(null)
-  const [form, setForm] = useState({ nom:'', email:'', entreprise:'', source:'LinkedIn', colonne:'prospect', budget:'', notes:'', date: new Date().toISOString().split('T')[0] })
+  const [data,          setData]          = useState(loadData)
+  const [showForm,      setShowForm]      = useState(false)
+  const [showSearch,    setShowSearch]    = useState(false)
+  const [selected,      setSelected]      = useState(null)
+  const [scoring,       setScoring]       = useState(null)
+  const [view,          setView]          = useState('kanban')
+  const [msg,           setMsg]           = useState(null)
 
+  // Recherche SIRENE
+  const [searchSecteur, setSearchSecteur] = useState(SECTEURS[0].naf)
+  const [searchDept,    setSearchDept]    = useState('02')
+  const [searchResults, setSearchResults] = useState([])
+  const [searching,     setSearching]     = useState(false)
+  const [searchMsg,     setSearchMsg]     = useState(null)
+  const [lastUpdate,    setLastUpdate]    = useState(null)
+
+  const [form, setForm] = useState({ nom:'', email:'', entreprise:'', source:'LinkedIn', colonne:'prospect', budget:'', notes:'', date: new Date().toISOString().split('T')[0] })
   const csvRef = useRef(null)
 
   const save = (d) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); setData(d) }
   const prospects = data.prospects || []
 
-  const showMsg = (text, duration = 3500) => {
-    setMsg(text)
-    setTimeout(() => setMsg(null), duration)
-  }
+  const showMsg = (text, duration = 3500) => { setMsg(text); setTimeout(() => setMsg(null), duration) }
 
   // ── IMPORT CSV ─────────────────────────────────────────────────
   const handleCSV = (e) => {
@@ -94,27 +122,96 @@ export default function PageProspects({ project }) {
     if (!file) return
     const reader = new FileReader()
     reader.onload = (ev) => {
-      const text = ev.target.result
-      const rows = parseCSV(text)
-      if (rows.length === 0) {
-        showMsg('❌ Fichier vide ou format invalide. Colonnes attendues : nom, email, entreprise, source, budget, notes')
-        return
-      }
+      const rows = parseCSV(ev.target.result)
+      if (rows.length === 0) { showMsg('❌ Fichier vide ou format invalide.'); return }
       const existingNoms = new Set(prospects.map(p => p.nom.toLowerCase()))
       const nouveaux = csvToProspects(rows, existingNoms)
       const doublons = rows.length - nouveaux.length
-
-      if (nouveaux.length === 0) {
-        showMsg(`⚠️ ${rows.length} ligne(s) ignorée(s) — tous les noms existent déjà.`)
-        return
-      }
-
+      if (nouveaux.length === 0) { showMsg(`⚠️ Tous les noms existent déjà.`); return }
       save({ ...data, prospects: [...nouveaux, ...prospects] })
       showMsg(`✅ ${nouveaux.length} prospect(s) importé(s)${doublons > 0 ? ` · ${doublons} doublon(s) ignoré(s)` : ''}`)
     }
     reader.readAsText(file, 'UTF-8')
-    // Reset input pour permettre re-import du même fichier
     e.target.value = ''
+  }
+
+  // ── RECHERCHE SIRENE ───────────────────────────────────────────
+  const rechercherSIRENE = async () => {
+    setSearching(true)
+    setSearchResults([])
+    setSearchMsg(null)
+    try {
+      // API Recherche Entreprises (data.gouv.fr) — gratuite, sans token
+const secteurLabel = SECTEURS.find(s => s.naf === searchSecteur)?.label || ''
+const url = `https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(secteurLabel)}&departement=${searchDept}&per_page=25&page=1`
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`Erreur API: ${res.status}`)
+      const json = await res.json()
+
+      const results = (json.results || []).map(e => ({
+        siret:      e.siege?.siret || '',
+        nom:        e.nom_complet || e.nom_raison_sociale || 'Inconnu',
+        ville:      e.siege?.libelle_commune || '',
+        codePostal: e.siege?.code_postal || '',
+        adresse:    e.siege?.adresse || '',
+        naf:        e.activite_principale || searchSecteur,
+        secteur:    secteurLabel,
+        statut:     e.etat_administratif || 'A',
+      })).filter(e => e.statut === 'A') // Actifs seulement
+
+      if (results.length === 0) {
+        setSearchMsg('⚠️ Aucun résultat pour cette recherche. Essaie un autre secteur ou département.')
+      } else {
+        setSearchMsg(`✅ ${results.length} entreprise(s) trouvée(s) — Source : data.gouv.fr / INSEE`)
+        setLastUpdate(new Date().toLocaleTimeString('fr-FR'))
+      }
+      setSearchResults(results)
+    } catch (err) {
+      setSearchMsg(`❌ Erreur de connexion : ${err.message}`)
+    }
+    setSearching(false)
+  }
+
+  // ── IMPORTER UN RÉSULTAT SIRENE ────────────────────────────────
+  const importerDepuisSIRENE = (entreprise) => {
+    const existingNoms = new Set(prospects.map(p => p.nom.toLowerCase()))
+    if (existingNoms.has(entreprise.nom.toLowerCase())) {
+      showMsg('⚠️ Ce prospect existe déjà dans votre liste.')
+      return
+    }
+    const nouveau = {
+      id:         Date.now() + Math.random(),
+      nom:        entreprise.nom,
+      email:      '',
+      entreprise: entreprise.nom,
+      source:     'SIRENE',
+      budget:     '',
+      notes:      `SIRET: ${entreprise.siret} | ${entreprise.adresse}, ${entreprise.codePostal} ${entreprise.ville} | Secteur: ${entreprise.secteur}`,
+      colonne:    'prospect',
+      date:       new Date().toISOString().split('T')[0],
+    }
+    save({ ...data, prospects: [nouveau, ...prospects] })
+    showMsg(`✅ ${entreprise.nom} ajouté aux prospects.`)
+  }
+
+  const importerTout = () => {
+    const existingNoms = new Set(prospects.map(p => p.nom.toLowerCase()))
+    const nouveaux = searchResults
+      .filter(e => !existingNoms.has(e.nom.toLowerCase()))
+      .map(e => ({
+        id:         Date.now() + Math.random(),
+        nom:        e.nom,
+        email:      '',
+        entreprise: e.nom,
+        source:     'SIRENE',
+        budget:     '',
+        notes:      `SIRET: ${e.siret} | ${e.adresse}, ${e.codePostal} ${e.ville} | Secteur: ${e.secteur}`,
+        colonne:    'prospect',
+        date:       new Date().toISOString().split('T')[0],
+      }))
+    if (nouveaux.length === 0) { showMsg('⚠️ Tous ces prospects existent déjà.'); return }
+    save({ ...data, prospects: [...nouveaux, ...prospects] })
+    showMsg(`✅ ${nouveaux.length} prospect(s) importé(s) depuis SIRENE.`)
   }
 
   // ── SCORING IA ─────────────────────────────────────────────────
@@ -150,16 +247,91 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
 
   const scoreColor = (s) => !s?'rgba(237,232,219,0.3)':s>=7?'#5BC78A':s>=4?'#D4A853':'#C75B4E'
   const potColor   = (p) => p==='haut'?'#5BC78A':p==='moyen'?'#D4A853':'#C75B4E'
-
   const totalBudget = prospects.filter(p=>p.colonne!=='perdu'&&p.budget).reduce((a,p)=>a+parseFloat(p.budget||0),0)
 
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',gap:16}}>
 
-      {/* INPUT CSV CACHÉ */}
       <input ref={csvRef} type="file" accept=".csv" onChange={handleCSV} style={{display:'none'}}/>
 
-      {/* FORMULAIRE */}
+      {/* ── PANNEAU RECHERCHE SIRENE ─────────────────────────── */}
+      {showSearch && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.88)',zIndex:1000,display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'40px 20px',overflowY:'auto'}}
+          onClick={e=>{if(e.target===e.currentTarget)setShowSearch(false)}}>
+          <div style={{background:'#1a1d24',border:'1px solid rgba(255,255,255,0.1)',borderRadius:16,width:'100%',maxWidth:640,padding:28}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+              <div>
+                <h3 style={{fontSize:15,fontWeight:700,color:'#EDE8DB',margin:'0 0 4px'}}>🔍 Recherche de prospects</h3>
+                <p style={{fontSize:11,color:'rgba(237,232,219,0.4)',margin:0}}>Source officielle : INSEE / data.gouv.fr — Légal & Gratuit</p>
+              </div>
+              <button onClick={()=>setShowSearch(false)} style={{background:'rgba(255,255,255,0.06)',border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer',color:'rgba(237,232,219,0.6)',fontSize:12}}>✕</button>
+            </div>
+
+            {/* Filtres */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
+              <div>
+                <label style={{fontSize:11,color:'rgba(237,232,219,0.4)',display:'block',marginBottom:4}}>Secteur d'activité</label>
+                <select value={searchSecteur} onChange={e=>setSearchSecteur(e.target.value)} style={{...iS,cursor:'pointer'}}>
+                  {SECTEURS.map(s=><option key={s.naf} value={s.naf}>{s.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{fontSize:11,color:'rgba(237,232,219,0.4)',display:'block',marginBottom:4}}>Département</label>
+                <select value={searchDept} onChange={e=>setSearchDept(e.target.value)} style={{...iS,cursor:'pointer'}}>
+                  {DEPARTEMENTS.map(d=><option key={d} value={d}>Département {d}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{display:'flex',gap:8,marginBottom:16}}>
+              <button onClick={rechercherSIRENE} disabled={searching}
+                style={{flex:1,padding:'10px',borderRadius:10,border:'none',background:project.color,color:'#0D1B2A',fontSize:13,fontWeight:800,cursor:searching?'not-allowed':'pointer',opacity:searching?0.7:1}}>
+                {searching ? '⏳ Recherche en cours...' : '🔍 Lancer la recherche'}
+              </button>
+              {searchResults.length > 0 && (
+                <button onClick={importerTout}
+                  style={{padding:'10px 16px',borderRadius:10,border:`1px solid ${project.color}`,background:'transparent',color:project.color,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+                  📥 Tout importer
+                </button>
+              )}
+            </div>
+
+            {lastUpdate && (
+              <p style={{fontSize:10,color:'rgba(237,232,219,0.3)',margin:'0 0 8px'}}>Dernière actualisation : {lastUpdate}</p>
+            )}
+
+            {searchMsg && (
+              <div style={{padding:'8px 12px',borderRadius:8,marginBottom:12,
+                background:searchMsg.startsWith('❌')?'rgba(199,91,78,0.1)':searchMsg.startsWith('⚠️')?'rgba(212,168,83,0.1)':'rgba(91,199,138,0.1)',
+                border:`1px solid ${searchMsg.startsWith('❌')?'rgba(199,91,78,0.2)':searchMsg.startsWith('⚠️')?'rgba(212,168,83,0.2)':'rgba(91,199,138,0.2)'}`,
+                fontSize:12,color:searchMsg.startsWith('❌')?'#C75B4E':searchMsg.startsWith('⚠️')?'#D4A853':'#5BC78A'}}>
+                {searchMsg}
+              </div>
+            )}
+
+            {/* Résultats */}
+            <div style={{display:'flex',flexDirection:'column',gap:6,maxHeight:400,overflowY:'auto'}}>
+              {searchResults.map((e,i)=>{
+                const dejaImporte = prospects.some(p=>p.nom.toLowerCase()===e.nom.toLowerCase())
+                return (
+                  <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:10}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <p style={{fontSize:12,fontWeight:700,color:'#EDE8DB',margin:'0 0 2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.nom}</p>
+                      <p style={{fontSize:10,color:'rgba(237,232,219,0.4)',margin:0}}>{e.codePostal} {e.ville} · SIRET : {e.siret}</p>
+                    </div>
+                    <button onClick={()=>importerDepuisSIRENE(e)} disabled={dejaImporte}
+                      style={{padding:'6px 12px',borderRadius:8,border:'none',background:dejaImporte?'rgba(255,255,255,0.05)':project.color,color:dejaImporte?'rgba(237,232,219,0.3)':'#0D1B2A',fontSize:11,fontWeight:700,cursor:dejaImporte?'default':'pointer',whiteSpace:'nowrap'}}>
+                      {dejaImporte ? '✓ Importé' : '+ Importer'}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── FORMULAIRE AJOUT MANUEL ──────────────────────────── */}
       {showForm && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget)setShowForm(false)}}>
           <div style={{background:'#1a1d24',border:'1px solid rgba(255,255,255,0.1)',borderRadius:16,width:'100%',maxWidth:480,padding:28,maxHeight:'90vh',overflowY:'auto'}}>
@@ -185,15 +357,6 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
               </div>
             </div>
             <div style={{marginBottom:14}}><label style={{fontSize:11,color:'rgba(237,232,219,0.4)',display:'block',marginBottom:4}}>Notes</label><textarea value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} rows={3} placeholder="Informations utiles..." style={{...iS,resize:'vertical'}}/></div>
-
-            {/* Info format CSV */}
-            <div style={{marginBottom:14,padding:'10px 12px',background:'rgba(91,163,199,0.06)',border:'1px solid rgba(91,163,199,0.15)',borderRadius:8}}>
-              <p style={{fontSize:10,color:'rgba(91,163,199,0.8)',margin:0,lineHeight:1.6}}>
-                💡 Tu peux aussi importer plusieurs prospects d'un coup via <strong>📥 Import CSV</strong> dans l'en-tête.<br/>
-                Colonnes supportées : <code style={{background:'rgba(255,255,255,0.06)',padding:'1px 4px',borderRadius:4}}>nom, email, entreprise, source, budget, notes</code>
-              </p>
-            </div>
-
             <div style={{display:'flex',gap:8}}>
               <button onClick={ajouter} style={{flex:1,padding:'10px',borderRadius:10,border:'none',background:project.color,color:'#0D1B2A',fontSize:13,fontWeight:800,cursor:'pointer'}}>✅ Ajouter</button>
               <button onClick={()=>setShowForm(false)} style={{padding:'10px 16px',borderRadius:10,border:'1px solid rgba(255,255,255,0.1)',background:'transparent',color:'rgba(237,232,219,0.5)',fontSize:12,cursor:'pointer'}}>Annuler</button>
@@ -202,7 +365,7 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
         </div>
       )}
 
-      {/* DÉTAIL PROSPECT */}
+      {/* ── DÉTAIL PROSPECT ──────────────────────────────────── */}
       {selected && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget)setSelected(null)}}>
           <div style={{background:'#1a1d24',border:'1px solid rgba(255,255,255,0.1)',borderRadius:16,width:'100%',maxWidth:480,padding:28}}>
@@ -237,12 +400,16 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
                 style={{padding:'8px 14px',borderRadius:9,border:`1px solid ${project.color}`,background:'transparent',color:project.color,fontSize:12,fontWeight:700,cursor:scoring?'not-allowed':'pointer'}}>
                 {scoring===selected.id?'⏳...':'🧠 Scorer'}
               </button>
+              <button onClick={()=>supprimer(selected.id)}
+                style={{padding:'8px 12px',borderRadius:9,border:'1px solid rgba(199,91,78,0.3)',background:'transparent',color:'#C75B4E',fontSize:12,cursor:'pointer'}}>
+                🗑️
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* HEADER */}
+      {/* ── HEADER ───────────────────────────────────────────── */}
       <div style={{display:'flex',gap:12,flexShrink:0,flexWrap:'wrap'}}>
         <div style={{padding:'12px 16px',borderRadius:12,background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)',flex:1}}>
           <p style={{fontSize:10,color:'rgba(237,232,219,0.4)',margin:'0 0 4px'}}>Total prospects</p>
@@ -256,7 +423,11 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
           <p style={{fontSize:10,color:'rgba(237,232,219,0.4)',margin:'0 0 4px'}}>Pipeline €</p>
           <p style={{fontSize:22,fontWeight:800,color:'#D4A853',margin:0}}>{totalBudget.toFixed(0)}€</p>
         </div>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+          <button onClick={()=>setShowSearch(true)}
+            style={{padding:'10px 14px',borderRadius:10,border:`1px solid ${project.color}`,background:`${project.color}15`,color:project.color,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+            🔍 Rechercher
+          </button>
           <button onClick={()=>csvRef.current?.click()}
             style={{padding:'10px 14px',borderRadius:10,border:'1px solid rgba(91,163,199,0.3)',background:'rgba(91,163,199,0.06)',color:'#5BA3C7',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
             📥 Import CSV
@@ -276,7 +447,7 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
         </div>
       )}
 
-      {/* KANBAN */}
+      {/* ── KANBAN ───────────────────────────────────────────── */}
       {view==='kanban' && (
         <div style={{flex:1,overflowX:'auto',display:'flex',gap:12,paddingBottom:8}}>
           {COLONNES.map(col=>{
@@ -311,11 +482,11 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
         </div>
       )}
 
-      {/* LISTE */}
+      {/* ── LISTE ────────────────────────────────────────────── */}
       {view==='liste' && (
         <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
           {prospects.length===0
-            ?<div style={{padding:40,textAlign:'center',color:'rgba(237,232,219,0.3)',fontSize:13}}>Aucun prospect. Clique sur ➕ pour commencer.</div>
+            ?<div style={{padding:40,textAlign:'center',color:'rgba(237,232,219,0.3)',fontSize:13}}>Aucun prospect. Clique sur 🔍 Rechercher ou ➕ pour commencer.</div>
             :prospects.map(p=>{
               const col = COLONNES.find(c=>c.id===p.colonne)||COLONNES[0]
               return (
