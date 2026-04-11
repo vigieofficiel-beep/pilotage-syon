@@ -12,8 +12,8 @@ const COLONNES = [
 
 const SOURCES = ['LinkedIn','Facebook','Bouche à oreille','Site web','Discord','Email','SIRENE','Autre']
 
-// ── SECTEURS (codes NAF simplifiés) ──────────────────────────────
 const SECTEURS = [
+  { label:'Tous secteurs',     naf:'' },
   { label:'Plombier',          naf:'4322A' },
   { label:'Électricien',       naf:'4321A' },
   { label:'Menuisier',         naf:'4332A' },
@@ -34,6 +34,15 @@ const SECTEURS = [
   { label:'Jardinier',         naf:'8130Z' },
   { label:'Photographe',       naf:'7420Z' },
   { label:'Consultant',        naf:'7022Z' },
+  { label:'Développeur web',   naf:'6201Z' },
+  { label:'Graphiste',         naf:'7410Z' },
+  { label:'Médecin',           naf:'8610Z' },
+  { label:'Dentiste',          naf:'8621Z' },
+  { label:'Vétérinaire',       naf:'7500Z' },
+  { label:'Fleuriste',         naf:'4776Z' },
+  { label:'Bijoutier',         naf:'4777Z' },
+  { label:'Opticien',          naf:'4778A' },
+  { label:'Pharmacie',         naf:'4773Z' },
 ]
 
 const DEPARTEMENTS = [
@@ -97,12 +106,14 @@ export default function PageProspects({ project }) {
   const [showSearch,    setShowSearch]    = useState(false)
   const [selected,      setSelected]      = useState(null)
   const [scoring,       setScoring]       = useState(null)
+  const [enriching,     setEnriching]     = useState(null)
   const [view,          setView]          = useState('kanban')
   const [msg,           setMsg]           = useState(null)
+  const [selection,     setSelection]     = useState(new Set())
 
-  // Recherche SIRENE
-  const [searchSecteur, setSearchSecteur] = useState(SECTEURS[0].naf)
+  const [searchSecteur, setSearchSecteur] = useState('')
   const [searchDept,    setSearchDept]    = useState('02')
+  const [searchTexte,   setSearchTexte]   = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searching,     setSearching]     = useState(false)
   const [searchMsg,     setSearchMsg]     = useState(null)
@@ -113,10 +124,8 @@ export default function PageProspects({ project }) {
 
   const save = (d) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); setData(d) }
   const prospects = data.prospects || []
-
   const showMsg = (text, duration = 3500) => { setMsg(text); setTimeout(() => setMsg(null), duration) }
 
-  // ── IMPORT CSV ─────────────────────────────────────────────────
   const handleCSV = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -127,7 +136,7 @@ export default function PageProspects({ project }) {
       const existingNoms = new Set(prospects.map(p => p.nom.toLowerCase()))
       const nouveaux = csvToProspects(rows, existingNoms)
       const doublons = rows.length - nouveaux.length
-      if (nouveaux.length === 0) { showMsg(`⚠️ Tous les noms existent déjà.`); return }
+      if (nouveaux.length === 0) { showMsg('⚠️ Tous les noms existent déjà.'); return }
       save({ ...data, prospects: [...nouveaux, ...prospects] })
       showMsg(`✅ ${nouveaux.length} prospect(s) importé(s)${doublons > 0 ? ` · ${doublons} doublon(s) ignoré(s)` : ''}`)
     }
@@ -135,15 +144,15 @@ export default function PageProspects({ project }) {
     e.target.value = ''
   }
 
-  // ── RECHERCHE SIRENE ───────────────────────────────────────────
   const rechercherSIRENE = async () => {
     setSearching(true)
     setSearchResults([])
     setSearchMsg(null)
     try {
-      // API Recherche Entreprises (data.gouv.fr) — gratuite, sans token
-const secteurLabel = SECTEURS.find(s => s.naf === searchSecteur)?.label || ''
-const url = `https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(secteurLabel)}&departement=${searchDept}&per_page=25&page=1`
+      const secteurLabel = SECTEURS.find(s => s.naf === searchSecteur)?.label || ''
+      const q = searchTexte.trim() || secteurLabel || 'entreprise'
+      const url = `https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(q)}&departement=${searchDept}&per_page=25&page=1`
+
       const res = await fetch(url)
       if (!res.ok) throw new Error(`Erreur API: ${res.status}`)
       const json = await res.json()
@@ -154,15 +163,17 @@ const url = `https://recherche-entreprises.api.gouv.fr/search?q=${encodeURICompo
         ville:      e.siege?.libelle_commune || '',
         codePostal: e.siege?.code_postal || '',
         adresse:    e.siege?.adresse || '',
-        naf:        e.activite_principale || searchSecteur,
+        naf:        e.activite_principale || '',
         secteur:    secteurLabel,
         statut:     e.etat_administratif || 'A',
-      })).filter(e => e.statut === 'A') // Actifs seulement
+        dirigeant:  e.dirigeants?.[0] ? `${e.dirigeants[0].prenoms || ''} ${e.dirigeants[0].nom || ''}`.trim() : '',
+        creation:   e.date_creation || '',
+      })).filter(e => e.statut === 'A')
 
       if (results.length === 0) {
-        setSearchMsg('⚠️ Aucun résultat pour cette recherche. Essaie un autre secteur ou département.')
+        setSearchMsg('⚠️ Aucun résultat. Essaie un autre secteur, département ou mot-clé.')
       } else {
-        setSearchMsg(`✅ ${results.length} entreprise(s) trouvée(s) — Source : data.gouv.fr / INSEE`)
+        setSearchMsg(`✅ ${results.length} entreprise(s) active(s) — Source : data.gouv.fr / INSEE`)
         setLastUpdate(new Date().toLocaleTimeString('fr-FR'))
       }
       setSearchResults(results)
@@ -172,49 +183,77 @@ const url = `https://recherche-entreprises.api.gouv.fr/search?q=${encodeURICompo
     setSearching(false)
   }
 
-  // ── IMPORTER UN RÉSULTAT SIRENE ────────────────────────────────
+  const enrichirProspect = async (prospect) => {
+    setEnriching(prospect.id)
+    try {
+      const siretMatch = (prospect.notes || '').match(/SIRET:\s*(\d{14})/)
+      const siret = siretMatch?.[1] || ''
+
+      if (!siret) {
+        showMsg('⚠️ Pas de SIRET trouvé. Importe ce prospect via 🔍 Rechercher d\'abord.')
+        setEnriching(null)
+        return
+      }
+
+      const res = await fetch('https://vigieofficiel.app.n8n.cloud/webhook/enrichir-prospect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siret })
+      })
+
+      if (!res.ok) throw new Error(`Erreur: ${res.status}`)
+      const enrichi = await res.json()
+
+      const notesEnrichies = [
+        prospect.notes,
+        enrichi.dirigeant ? `Dirigeant: ${enrichi.dirigeant}` : '',
+        enrichi.adresse ? `Adresse: ${enrichi.adresse}, ${enrichi.code_postal} ${enrichi.ville}` : '',
+        enrichi.activite ? `Activité: ${enrichi.activite}` : '',
+        enrichi.effectif ? `Effectif: ${enrichi.effectif}` : '',
+        enrichi.date_creation ? `Création: ${enrichi.date_creation}` : '',
+      ].filter(Boolean).join(' | ')
+
+      const updated = prospects.map(p => p.id === prospect.id ? { ...p, notes: notesEnrichies } : p)
+      save({ ...data, prospects: updated })
+      if (selected?.id === prospect.id) setSelected(p => ({ ...p, notes: notesEnrichies }))
+      showMsg(`✅ ${prospect.nom} enrichi via n8n.`)
+    } catch (err) {
+      showMsg(`❌ Enrichissement échoué : ${err.message}`)
+    }
+    setEnriching(null)
+  }
+
   const importerDepuisSIRENE = (entreprise) => {
     const existingNoms = new Set(prospects.map(p => p.nom.toLowerCase()))
-    if (existingNoms.has(entreprise.nom.toLowerCase())) {
-      showMsg('⚠️ Ce prospect existe déjà dans votre liste.')
-      return
-    }
-    const nouveau = {
-      id:         Date.now() + Math.random(),
-      nom:        entreprise.nom,
-      email:      '',
-      entreprise: entreprise.nom,
-      source:     'SIRENE',
-      budget:     '',
-      notes:      `SIRET: ${entreprise.siret} | ${entreprise.adresse}, ${entreprise.codePostal} ${entreprise.ville} | Secteur: ${entreprise.secteur}`,
-      colonne:    'prospect',
-      date:       new Date().toISOString().split('T')[0],
-    }
-    save({ ...data, prospects: [nouveau, ...prospects] })
+    if (existingNoms.has(entreprise.nom.toLowerCase())) { showMsg('⚠️ Ce prospect existe déjà.'); return }
+    const notes = [
+      entreprise.siret ? `SIRET: ${entreprise.siret}` : '',
+      entreprise.dirigeant ? `Dirigeant: ${entreprise.dirigeant}` : '',
+      (entreprise.adresse || entreprise.codePostal || entreprise.ville) ? `Adresse: ${entreprise.adresse}, ${entreprise.codePostal} ${entreprise.ville}` : '',
+      entreprise.secteur ? `Secteur: ${entreprise.secteur}` : '',
+      entreprise.creation ? `Création: ${entreprise.creation}` : '',
+    ].filter(Boolean).join(' | ')
+    save({ ...data, prospects: [{ id: Date.now() + Math.random(), nom: entreprise.nom, email: '', entreprise: entreprise.nom, source: 'SIRENE', budget: '', notes, colonne: 'prospect', date: new Date().toISOString().split('T')[0] }, ...prospects] })
     showMsg(`✅ ${entreprise.nom} ajouté aux prospects.`)
   }
 
   const importerTout = () => {
     const existingNoms = new Set(prospects.map(p => p.nom.toLowerCase()))
-    const nouveaux = searchResults
-      .filter(e => !existingNoms.has(e.nom.toLowerCase()))
-      .map(e => ({
-        id:         Date.now() + Math.random(),
-        nom:        e.nom,
-        email:      '',
-        entreprise: e.nom,
-        source:     'SIRENE',
-        budget:     '',
-        notes:      `SIRET: ${e.siret} | ${e.adresse}, ${e.codePostal} ${e.ville} | Secteur: ${e.secteur}`,
-        colonne:    'prospect',
-        date:       new Date().toISOString().split('T')[0],
-      }))
+    const nouveaux = searchResults.filter(e => !existingNoms.has(e.nom.toLowerCase())).map(e => {
+      const notes = [
+        e.siret ? `SIRET: ${e.siret}` : '',
+        e.dirigeant ? `Dirigeant: ${e.dirigeant}` : '',
+        (e.adresse || e.codePostal || e.ville) ? `Adresse: ${e.adresse}, ${e.codePostal} ${e.ville}` : '',
+        e.secteur ? `Secteur: ${e.secteur}` : '',
+        e.creation ? `Création: ${e.creation}` : '',
+      ].filter(Boolean).join(' | ')
+      return { id: Date.now() + Math.random(), nom: e.nom, email: '', entreprise: e.nom, source: 'SIRENE', budget: '', notes, colonne: 'prospect', date: new Date().toISOString().split('T')[0] }
+    })
     if (nouveaux.length === 0) { showMsg('⚠️ Tous ces prospects existent déjà.'); return }
     save({ ...data, prospects: [...nouveaux, ...prospects] })
     showMsg(`✅ ${nouveaux.length} prospect(s) importé(s) depuis SIRENE.`)
   }
 
-  // ── SCORING IA ─────────────────────────────────────────────────
   const scorerProspect = async (p) => {
     setScoring(p.id)
     try {
@@ -231,6 +270,7 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
       const result = JSON.parse(data2.choices[0].message.content)
       const updated = prospects.map(x => x.id===p.id ? {...x,...result} : x)
       save({...data, prospects:updated})
+      if (selected?.id === p.id) setSelected(prev => ({...prev, ...result}))
     } catch(e) { console.error(e) }
     setScoring(null)
   }
@@ -243,22 +283,23 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
   }
 
   const moveColonne = (id, colonne) => save({...data, prospects:prospects.map(p=>p.id===id?{...p,colonne}:p)})
-  const supprimer   = (id) => { if(!confirm('Supprimer ?')) return; save({...data,prospects:prospects.filter(p=>p.id!==id)}); if(selected?.id===id)setSelected(null) }
-
+  const supprimer = (id) => { if(!confirm('Supprimer ?')) return; save({...data,prospects:prospects.filter(p=>p.id!==id)}); if(selected?.id===id)setSelected(null) }
+  const toggleSelect = (id) => setSelection(s => { const n = new Set(s); n.has(id)?n.delete(id):n.add(id); return n })
+  const supprimerSelection = () => { if(!confirm(`Supprimer ${selection.size} prospect(s) ?`)) return; save({...data,prospects:prospects.filter(p=>!selection.has(p.id))}); setSelection(new Set()) }
+  const toutSupprimer = () => { if(!confirm('Supprimer TOUS les prospects ?')) return; save({...data,prospects:[]}); setSelection(new Set()) }
   const scoreColor = (s) => !s?'rgba(237,232,219,0.3)':s>=7?'#5BC78A':s>=4?'#D4A853':'#C75B4E'
-  const potColor   = (p) => p==='haut'?'#5BC78A':p==='moyen'?'#D4A853':'#C75B4E'
+  const potColor = (p) => p==='haut'?'#5BC78A':p==='moyen'?'#D4A853':'#C75B4E'
   const totalBudget = prospects.filter(p=>p.colonne!=='perdu'&&p.budget).reduce((a,p)=>a+parseFloat(p.budget||0),0)
 
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',gap:16}}>
-
       <input ref={csvRef} type="file" accept=".csv" onChange={handleCSV} style={{display:'none'}}/>
 
-      {/* ── PANNEAU RECHERCHE SIRENE ─────────────────────────── */}
+      {/* PANNEAU RECHERCHE */}
       {showSearch && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.88)',zIndex:1000,display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'40px 20px',overflowY:'auto'}}
           onClick={e=>{if(e.target===e.currentTarget)setShowSearch(false)}}>
-          <div style={{background:'#1a1d24',border:'1px solid rgba(255,255,255,0.1)',borderRadius:16,width:'100%',maxWidth:640,padding:28}}>
+          <div style={{background:'#1a1d24',border:'1px solid rgba(255,255,255,0.1)',borderRadius:16,width:'100%',maxWidth:660,padding:28}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
               <div>
                 <h3 style={{fontSize:15,fontWeight:700,color:'#EDE8DB',margin:'0 0 4px'}}>🔍 Recherche de prospects</h3>
@@ -266,8 +307,10 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
               </div>
               <button onClick={()=>setShowSearch(false)} style={{background:'rgba(255,255,255,0.06)',border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer',color:'rgba(237,232,219,0.6)',fontSize:12}}>✕</button>
             </div>
-
-            {/* Filtres */}
+            <div style={{marginBottom:12}}>
+              <label style={{fontSize:11,color:'rgba(237,232,219,0.4)',display:'block',marginBottom:4}}>Recherche libre (nom, ville, métier...)</label>
+              <input value={searchTexte} onChange={e=>setSearchTexte(e.target.value)} onKeyDown={e=>e.key==='Enter'&&rechercherSIRENE()} placeholder="Ex: plombier Soissons, boulangerie Martin..." style={iS}/>
+            </div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
               <div>
                 <label style={{fontSize:11,color:'rgba(237,232,219,0.4)',display:'block',marginBottom:4}}>Secteur d'activité</label>
@@ -282,24 +325,18 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
                 </select>
               </div>
             </div>
-
             <div style={{display:'flex',gap:8,marginBottom:16}}>
               <button onClick={rechercherSIRENE} disabled={searching}
                 style={{flex:1,padding:'10px',borderRadius:10,border:'none',background:project.color,color:'#0D1B2A',fontSize:13,fontWeight:800,cursor:searching?'not-allowed':'pointer',opacity:searching?0.7:1}}>
                 {searching ? '⏳ Recherche en cours...' : '🔍 Lancer la recherche'}
               </button>
               {searchResults.length > 0 && (
-                <button onClick={importerTout}
-                  style={{padding:'10px 16px',borderRadius:10,border:`1px solid ${project.color}`,background:'transparent',color:project.color,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+                <button onClick={importerTout} style={{padding:'10px 16px',borderRadius:10,border:`1px solid ${project.color}`,background:'transparent',color:project.color,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
                   📥 Tout importer
                 </button>
               )}
             </div>
-
-            {lastUpdate && (
-              <p style={{fontSize:10,color:'rgba(237,232,219,0.3)',margin:'0 0 8px'}}>Dernière actualisation : {lastUpdate}</p>
-            )}
-
+            {lastUpdate && <p style={{fontSize:10,color:'rgba(237,232,219,0.3)',margin:'0 0 8px'}}>Dernière actualisation : {lastUpdate}</p>}
             {searchMsg && (
               <div style={{padding:'8px 12px',borderRadius:8,marginBottom:12,
                 background:searchMsg.startsWith('❌')?'rgba(199,91,78,0.1)':searchMsg.startsWith('⚠️')?'rgba(212,168,83,0.1)':'rgba(91,199,138,0.1)',
@@ -308,16 +345,15 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
                 {searchMsg}
               </div>
             )}
-
-            {/* Résultats */}
-            <div style={{display:'flex',flexDirection:'column',gap:6,maxHeight:400,overflowY:'auto'}}>
+            <div style={{display:'flex',flexDirection:'column',gap:6,maxHeight:420,overflowY:'auto'}}>
               {searchResults.map((e,i)=>{
                 const dejaImporte = prospects.some(p=>p.nom.toLowerCase()===e.nom.toLowerCase())
                 return (
                   <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:10}}>
                     <div style={{flex:1,minWidth:0}}>
                       <p style={{fontSize:12,fontWeight:700,color:'#EDE8DB',margin:'0 0 2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.nom}</p>
-                      <p style={{fontSize:10,color:'rgba(237,232,219,0.4)',margin:0}}>{e.codePostal} {e.ville} · SIRET : {e.siret}</p>
+                      <p style={{fontSize:10,color:'rgba(237,232,219,0.4)',margin:'0 0 1px'}}>{e.codePostal} {e.ville} · SIRET : {e.siret}</p>
+                      {e.dirigeant && <p style={{fontSize:10,color:'rgba(237,232,219,0.3)',margin:0}}>👤 {e.dirigeant}</p>}
                     </div>
                     <button onClick={()=>importerDepuisSIRENE(e)} disabled={dejaImporte}
                       style={{padding:'6px 12px',borderRadius:8,border:'none',background:dejaImporte?'rgba(255,255,255,0.05)':project.color,color:dejaImporte?'rgba(237,232,219,0.3)':'#0D1B2A',fontSize:11,fontWeight:700,cursor:dejaImporte?'default':'pointer',whiteSpace:'nowrap'}}>
@@ -331,7 +367,7 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
         </div>
       )}
 
-      {/* ── FORMULAIRE AJOUT MANUEL ──────────────────────────── */}
+      {/* FORMULAIRE */}
       {showForm && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget)setShowForm(false)}}>
           <div style={{background:'#1a1d24',border:'1px solid rgba(255,255,255,0.1)',borderRadius:16,width:'100%',maxWidth:480,padding:28,maxHeight:'90vh',overflowY:'auto'}}>
@@ -365,10 +401,10 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
         </div>
       )}
 
-      {/* ── DÉTAIL PROSPECT ──────────────────────────────────── */}
+      {/* DÉTAIL */}
       {selected && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget)setSelected(null)}}>
-          <div style={{background:'#1a1d24',border:'1px solid rgba(255,255,255,0.1)',borderRadius:16,width:'100%',maxWidth:480,padding:28}}>
+          <div style={{background:'#1a1d24',border:'1px solid rgba(255,255,255,0.1)',borderRadius:16,width:'100%',maxWidth:480,padding:28,maxHeight:'90vh',overflowY:'auto'}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:16}}>
               <h3 style={{fontSize:16,fontWeight:700,color:'#EDE8DB',margin:0}}>{selected.nom}</h3>
               <button onClick={()=>setSelected(null)} style={{background:'rgba(255,255,255,0.06)',border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer',color:'rgba(237,232,219,0.6)',fontSize:12}}>✕</button>
@@ -378,7 +414,7 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
               {selected.email && <p style={{fontSize:13,color:'rgba(237,232,219,0.6)',margin:0}}>📧 {selected.email}</p>}
               {selected.budget && <p style={{fontSize:13,color:'#5BC78A',margin:0,fontWeight:700}}>💰 Budget : {selected.budget}€</p>}
               <p style={{fontSize:12,color:'rgba(237,232,219,0.4)',margin:0}}>📍 Source : {selected.source} · {selected.date}</p>
-              {selected.notes && <p style={{fontSize:12,color:'rgba(237,232,219,0.5)',margin:0,fontStyle:'italic'}}>{selected.notes}</p>}
+              {selected.notes && <p style={{fontSize:12,color:'rgba(237,232,219,0.5)',margin:0,fontStyle:'italic',lineHeight:1.6}}>{selected.notes}</p>}
             </div>
             {selected.score && (
               <div style={{background:'rgba(255,255,255,0.03)',borderRadius:10,padding:14,marginBottom:14}}>
@@ -391,25 +427,36 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
                 {selected.action_suivante && <p style={{fontSize:11,color:project.color,margin:0,fontWeight:700}}>→ {selected.action_suivante}</p>}
               </div>
             )}
-            <div style={{display:'flex',gap:8}}>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
               <select value={selected.colonne} onChange={e=>{moveColonne(selected.id,e.target.value);setSelected(p=>({...p,colonne:e.target.value}))}}
                 style={{flex:1,padding:'8px',borderRadius:9,background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.1)',color:'rgba(237,232,219,0.7)',fontSize:12,cursor:'pointer',outline:'none'}}>
                 {COLONNES.map(c=><option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
               </select>
+              <button onClick={()=>enrichirProspect(selected)} disabled={!!enriching}
+                style={{padding:'8px 12px',borderRadius:9,border:'1px solid rgba(212,168,83,0.4)',background:'transparent',color:'#D4A853',fontSize:12,fontWeight:700,cursor:enriching?'not-allowed':'pointer',whiteSpace:'nowrap'}}>
+                {enriching===selected.id?'⏳...':'📊 Enrichir'}
+              </button>
+              <button onClick={()=>{
+                const nom = encodeURIComponent(selected.nom || selected.entreprise || '')
+                const ville = encodeURIComponent((selected.notes||'').match(/(\d{5})\s+([A-Z\-]+)/)?.[0] || '')
+                window.open(`https://www.google.com/search?q=${nom}+téléphone+site+web`, '_blank')
+                window.open(`https://www.pagesjaunes.fr/recherche/${encodeURIComponent(selected.nom || selected.entreprise)}`, '_blank')
+                window.open(`https://www.societe.com/cgi-bin/search?champs=${nom}`, '_blank')
+              }}
+                style={{padding:'8px 12px',borderRadius:9,border:'1px solid rgba(255,255,255,0.15)',background:'transparent',color:'rgba(237,232,219,0.6)',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+                🌐 Web
+              </button>
               <button onClick={()=>scorerProspect(selected)} disabled={!!scoring}
                 style={{padding:'8px 14px',borderRadius:9,border:`1px solid ${project.color}`,background:'transparent',color:project.color,fontSize:12,fontWeight:700,cursor:scoring?'not-allowed':'pointer'}}>
                 {scoring===selected.id?'⏳...':'🧠 Scorer'}
               </button>
-              <button onClick={()=>supprimer(selected.id)}
-                style={{padding:'8px 12px',borderRadius:9,border:'1px solid rgba(199,91,78,0.3)',background:'transparent',color:'#C75B4E',fontSize:12,cursor:'pointer'}}>
-                🗑️
-              </button>
+              <button onClick={()=>supprimer(selected.id)} style={{padding:'8px 12px',borderRadius:9,border:'1px solid rgba(199,91,78,0.3)',background:'transparent',color:'#C75B4E',fontSize:12,cursor:'pointer'}}>🗑️</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── HEADER ───────────────────────────────────────────── */}
+      {/* HEADER */}
       <div style={{display:'flex',gap:12,flexShrink:0,flexWrap:'wrap'}}>
         <div style={{padding:'12px 16px',borderRadius:12,background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)',flex:1}}>
           <p style={{fontSize:10,color:'rgba(237,232,219,0.4)',margin:'0 0 4px'}}>Total prospects</p>
@@ -424,30 +471,39 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
           <p style={{fontSize:22,fontWeight:800,color:'#D4A853',margin:0}}>{totalBudget.toFixed(0)}€</p>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-          <button onClick={()=>setShowSearch(true)}
-            style={{padding:'10px 14px',borderRadius:10,border:`1px solid ${project.color}`,background:`${project.color}15`,color:project.color,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+          <button onClick={()=>setShowSearch(true)} style={{padding:'10px 14px',borderRadius:10,border:`1px solid ${project.color}`,background:`${project.color}15`,color:project.color,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
             🔍 Rechercher
           </button>
-          <button onClick={()=>csvRef.current?.click()}
-            style={{padding:'10px 14px',borderRadius:10,border:'1px solid rgba(91,163,199,0.3)',background:'rgba(91,163,199,0.06)',color:'#5BA3C7',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+          <button onClick={()=>csvRef.current?.click()} style={{padding:'10px 14px',borderRadius:10,border:'1px solid rgba(91,163,199,0.3)',background:'rgba(91,163,199,0.06)',color:'#5BA3C7',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
             📥 Import CSV
           </button>
-          <button onClick={()=>setView(v=>v==='kanban'?'liste':'kanban')}
-            style={{padding:'10px 14px',borderRadius:10,border:'1px solid rgba(255,255,255,0.1)',background:'transparent',color:'rgba(237,232,219,0.5)',fontSize:12,cursor:'pointer'}}>
+          {selection.size > 0 && (
+            <button onClick={supprimerSelection} style={{padding:'10px 14px',borderRadius:10,border:'1px solid rgba(199,91,78,0.4)',background:'rgba(199,91,78,0.08)',color:'#C75B4E',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+              🗑️ Supprimer ({selection.size})
+            </button>
+          )}
+          {prospects.length > 0 && selection.size === 0 && (
+            <button onClick={toutSupprimer} style={{padding:'10px 14px',borderRadius:10,border:'1px solid rgba(199,91,78,0.2)',background:'transparent',color:'rgba(199,91,78,0.5)',fontSize:11,cursor:'pointer',whiteSpace:'nowrap'}}>
+              🗑️ Tout supprimer
+            </button>
+          )}
+          <button onClick={()=>setView(v=>v==='kanban'?'liste':'kanban')} style={{padding:'10px 14px',borderRadius:10,border:'1px solid rgba(255,255,255,0.1)',background:'transparent',color:'rgba(237,232,219,0.5)',fontSize:12,cursor:'pointer'}}>
             {view==='kanban'?'📋 Liste':'🗂️ Kanban'}
           </button>
           <button onClick={()=>setShowForm(true)} style={{padding:'10px 16px',borderRadius:10,border:'none',background:project.color,color:'#0D1B2A',fontSize:12,fontWeight:800,cursor:'pointer'}}>➕ Ajouter</button>
         </div>
       </div>
 
-      {/* MESSAGE */}
       {msg && (
-        <div style={{padding:'10px 14px',borderRadius:10,background:msg.startsWith('❌')?'rgba(199,91,78,0.1)':msg.startsWith('⚠️')?'rgba(212,168,83,0.1)':'rgba(91,199,138,0.1)',border:`1px solid ${msg.startsWith('❌')?'rgba(199,91,78,0.2)':msg.startsWith('⚠️')?'rgba(212,168,83,0.2)':'rgba(91,199,138,0.2)'}`,fontSize:13,color:msg.startsWith('❌')?'#C75B4E':msg.startsWith('⚠️')?'#D4A853':'#5BC78A',flexShrink:0}}>
+        <div style={{padding:'10px 14px',borderRadius:10,
+          background:msg.startsWith('❌')?'rgba(199,91,78,0.1)':msg.startsWith('⚠️')?'rgba(212,168,83,0.1)':'rgba(91,199,138,0.1)',
+          border:`1px solid ${msg.startsWith('❌')?'rgba(199,91,78,0.2)':msg.startsWith('⚠️')?'rgba(212,168,83,0.2)':'rgba(91,199,138,0.2)'}`,
+          fontSize:13,color:msg.startsWith('❌')?'#C75B4E':msg.startsWith('⚠️')?'#D4A853':'#5BC78A',flexShrink:0}}>
           {msg}
         </div>
       )}
 
-      {/* ── KANBAN ───────────────────────────────────────────── */}
+      {/* KANBAN */}
       {view==='kanban' && (
         <div style={{flex:1,overflowX:'auto',display:'flex',gap:12,paddingBottom:8}}>
           {COLONNES.map(col=>{
@@ -482,7 +538,7 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
         </div>
       )}
 
-      {/* ── LISTE ────────────────────────────────────────────── */}
+      {/* LISTE */}
       {view==='liste' && (
         <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
           {prospects.length===0
@@ -490,7 +546,8 @@ JSON: {"score":7,"potentiel":"haut|moyen|faible","resume":"...","action_suivante
             :prospects.map(p=>{
               const col = COLONNES.find(c=>c.id===p.colonne)||COLONNES[0]
               return (
-                <div key={p.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 16px',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.06)',borderRadius:10,cursor:'pointer'}} onClick={()=>setSelected(p)}>
+                <div key={p.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 16px',background:selection.has(p.id)?'rgba(199,91,78,0.06)':'rgba(255,255,255,0.03)',border:`1px solid ${selection.has(p.id)?'rgba(199,91,78,0.2)':'rgba(255,255,255,0.06)'}`,borderRadius:10,cursor:'pointer'}} onClick={()=>setSelected(p)}>
+                  <input type="checkbox" checked={selection.has(p.id)} onChange={e=>{e.stopPropagation();toggleSelect(p.id)}} onClick={e=>e.stopPropagation()} style={{cursor:'pointer',accentColor:'#C75B4E',width:14,height:14,flexShrink:0}}/>
                   <div style={{flex:1}}>
                     <span style={{fontSize:13,fontWeight:600,color:'#EDE8DB'}}>{p.nom}</span>
                     {p.entreprise && <span style={{fontSize:11,color:'rgba(237,232,219,0.4)',marginLeft:8}}>{p.entreprise}</span>}
