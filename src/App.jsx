@@ -8,6 +8,7 @@ import PageProspects from './pages/PageProspects'
 import PageCalendrier from './pages/PageCalendrier'
 import PageTemplates, { saveTemplate } from './pages/PageTemplates'
 import LicenceModal from './pages/LicenceModal'
+import PageAssistant from './pages/PageAssistant'
 
 const PROJECTS_DEFAULT = [
   { id:'vigie',        label:'Vigie',        color:'#5BA3C7', emoji:'🛡️', reseaux:['linkedin','facebook','discord','youtube'] },
@@ -53,10 +54,11 @@ const TABS = [
   { id:'finances',         label:'Finances',          emoji:'💰' },
   { id:'sav',              label:'SAV',               emoji:'💬' },
   { id:'prospects',        label:'Prospects',         emoji:'🎯' },
+  { id:'assistant',        label:'Assistant',         emoji:'🗓️' },
   { id:'personnalisation', label:'Personnalisation',  emoji:'⚙️' },
 ]
 
-const ACTIVE_TABS = ['contenu','templates','personnalisation','vault','monitoring','finances','sav','prospects','calendrier']
+const ACTIVE_TABS = ['contenu','templates','personnalisation','vault','monitoring','finances','sav','prospects','calendrier','assistant']
 const STORAGE_KEY_PROJECTS = 'pilotage_projects'
 const STORAGE_KEY_THEME    = 'pilotage_theme'
 
@@ -455,6 +457,7 @@ export default function App() {
             {activeTab==='finances'         && <PageFinances project={project}/>}
             {activeTab==='sav'             && <PageSAV project={project}/>}
             {activeTab==='prospects'        && <PageProspects project={project}/>}
+            {activeTab==='assistant'        && <PageAssistant project={project}/>}
           </div>
         </div>
       </div>
